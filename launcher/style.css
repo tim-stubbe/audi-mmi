@@ -1,0 +1,119 @@
+:root {
+  --bg: #000000;
+  --tile-bg: #101010;
+  --tile-bg-active: #1c1c1c;
+  --accent: #d0d0d0;
+  --accent-carplay: #3fae3f;
+  --accent-vehicle: #3a7bd5;
+  --accent-settings: #b0b0b0;
+  --accent-shutdown: #c0392b;
+  --text: #f2f2f2;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 1600px;
+  height: 720px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+}
+
+.statusbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  font-size: 20px;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #444;
+  margin-left: 12px;
+}
+.status-dot.online { background: #3fae3f; }
+.status-dot.offline { background: #c0392b; }
+
+.grid {
+  position: absolute;
+  top: 48px; left: 0; right: 0; bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  padding: 32px;
+}
+
+.tile {
+  background: var(--tile-bg);
+  border: 1px solid #262626;
+  border-radius: 24px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  font-size: 28px;
+  cursor: pointer;
+  transition: background 0.08s ease, transform 0.08s ease;
+}
+
+.tile:active,
+.tile.pressed {
+  background: var(--tile-bg-active);
+  transform: scale(0.97);
+}
+
+.tile .icon {
+  width: 96px;
+  height: 96px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-carplay .icon { stroke: var(--accent-carplay); }
+.tile-vehicle .icon { stroke: var(--accent-vehicle); }
+.tile-settings .icon { stroke: var(--accent-settings); }
+.tile-shutdown .icon { stroke: var(--accent-shutdown); }
+
+.tile-shutdown span { color: var(--accent-shutdown); }
+
+.confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 32px;
+  z-index: 10;
+}
+.confirm-overlay.visible { display: flex; }
+.confirm-overlay p { font-size: 32px; }
+.confirm-actions { display: flex; gap: 32px; }
+.confirm-actions button {
+  font-size: 26px;
+  padding: 20px 48px;
+  border-radius: 16px;
+  border: none;
+  color: var(--text);
+  background: var(--tile-bg);
+  border: 1px solid #333;
+}
+.confirm-actions .danger { background: var(--accent-shutdown); }

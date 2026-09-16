@@ -1,0 +1,13 @@
+[Unit]
+Description=Audi MMI touch home-gesture watcher
+
+[Service]
+Type=simple
+User=tim
+SupplementaryGroups=input
+ExecStart=/usr/bin/python3 /opt/audi-mmi/bin/touch-home-watcher.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

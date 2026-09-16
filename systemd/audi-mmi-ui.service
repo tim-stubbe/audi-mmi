@@ -1,0 +1,16 @@
+[Unit]
+Description=Audi MMI Launcher UI
+After=graphical.target labwc.service
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=tim
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/python3 /opt/audi-mmi/launcher/server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

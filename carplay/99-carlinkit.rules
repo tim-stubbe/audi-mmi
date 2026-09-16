@@ -1,0 +1,2 @@
+# Carlinkit CPC200-CCPA / CPC200-CCPM USB permissions for react-carplay
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1314", ATTRS{idProduct}=="152*", MODE="0666", GROUP="plugdev"
