@@ -1,0 +1,10 @@
+IMG_NAME='audi-mmi'
+RELEASE=trixie
+DEPLOY_COMPRESSION=xz
+LOCALE_DEFAULT=de_DE.UTF-8
+TARGET_HOSTNAME=audi-carplay
+KEYBOARD_KEYMAP=de
+KEYBOARD_LAYOUT="German"
+TIMEZONE_DEFAULT="Europe/Zurich"
+FIRST_USER_NAME=tim
+STAGE_LIST="stage0 stage1 stage2 ./stage-audi-mmi"

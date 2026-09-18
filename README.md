@@ -6,63 +6,81 @@ und eines Carlinkit CPC200-CCPA/CCPM CarPlay-Dongles.
 
 ## Hardware
 
-- Raspberry Pi Zero 2 W (512MB RAM), Raspberry Pi OS 64-bit (Debian 13 "trixie")
+- Raspberry Pi Zero 2 W (512MB RAM), eigenes 64-bit-Raspberry-Pi-OS-Image (Debian 13 "trixie")
 - Waveshare 10.4HP-CAPQLED, 1600×720 @ ~59 Hz, HDMI + USB-C Touch
 - Carlinkit CPC200-CCPA/CCPM (kabelgebunden/kabellos CarPlay)
 - Audi Music Interface (AMI) auf USB bzw. 3,5mm AUX für späteren Ton
 
+## Installation
+
+Fertiges Image unter den [Releases](../../releases) dieses Repos, mit
+Raspberry Pi Imager als "Custom Image" flashen. Benutzername/WLAN/Passwort
+wie gewohnt über die Imager-Erweiterten-Optionen setzen - das Image selbst
+enthält keine Zugangsdaten. Details zum Eigenbau des Images:
+`docs/os-image-build.md`.
+
 ## Architektur
 
 ```
-systemd: audi-mmi-ui.service          -> launcher/server.py (Python, stdlib-only)
-                                          - serviert launcher/index.html (Kiosk-UI)
-                                          - startet Chromium im Kiosk-Modus (Wayland/labwc)
-                                          - schaltet auf Tastendruck auf CarPlay AppImage um
+systemd: audi-mmi-kiosk.service   -> bin/kiosk-runner.sh
+                                      - startet 'cage' (minimaler Wayland-Kiosk-Compositor)
+                                      - abwechselnd mit native-launcher/launcher.py (GTK3/Python)
+                                        oder dem react-carplay-AppImage
+                                      - cage zeigt pro Sitzung nur eine App -> Wechsel = cage
+                                        neu starten (dauert < 1s, kein zweiter Prozess parallel)
 
 systemd: audi-mmi-home-watcher.service -> bin/touch-home-watcher.py
-                                          - liest Touch-Events direkt vom Kernel (evdev)
-                                          - Long-Press oben links (>=1.2s) -> zurück zum Launcher
-                                          - funktioniert auch, wenn CarPlay im Vordergrund ist
+                                      - liest Touch-Events direkt vom Kernel (evdev)
+                                      - Long-Press oben links (>=1.2s) -> laufendes cage beenden,
+                                        kiosk-runner.sh springt automatisch zurück zum Launcher
+                                      - funktioniert auch, wenn CarPlay im Vordergrund ist
+
+systemd: audi-mmi-firstboot.service -> bin/audi-mmi-firstboot.sh
+                                      - einmalig beim ersten Boot: findet den per Imager
+                                        angelegten Benutzer (UID 1000) und vergibt
+                                        passwortloses sudo + Gruppenrechte (input/video/etc.)
 ```
 
-Der Launcher läuft bewusst NICHT als Electron-App, sondern als minimaler Python-
-HTTP-Server + statisches HTML/CSS/JS, um auf dem RAM-knappen Pi Zero 2 W
-(512MB) Ressourcen für CarPlay selbst freizuhalten. react-carplay wird als
-offizielles, vorgefertigtes AppImage (kein Quellcode-Build auf dem Pi) genutzt.
+Der Launcher ist bewusst eine native GTK3/Python-App statt Electron/Chromium
+(ursprünglicher Ansatz) – auf dem RAM-knappen Pi Zero 2 W (512MB) spart das
+gegenüber Chromium (~150-200MB) enorm viel Speicher für CarPlay selbst.
+react-carplay wird als offizielles, vorgefertigtes AppImage genutzt (kein
+Quellcode-Build auf dem Pi) und beim Bau des OS-Images direkt einbelackt,
+damit das System auch ganz ohne Internetzugang CarPlay-bereit ist.
 
 ## Verzeichnisse
 
-- `launcher/` – Kiosk-Oberfläche (HTML/CSS/JS) + Backend (server.py)
-- `bin/` – Hilfsskripte (Touch-Gesten-Watcher)
+- `native-launcher/` – GTK3/Python-Kiosk-Oberfläche
+- `bin/` – Hilfsskripte (Kiosk-Runner, Touch-Gesten-Watcher, Erstboot-Setup)
 - `systemd/` – systemd-Units für Autostart
+- `pi-gen-stage/` – eigene pi-gen-Stage zum Bauen des kompletten OS-Images
 - `carplay/` – udev-Regel für den Carlinkit-Dongle
-- `backups/pi/<datum>/` – Originalkonfigurationen vor Änderungen
+- `backups/pi/<datum>/` – Originalkonfigurationen (aus der Zeit vor dem Custom-Image)
 - `docs/` – Setup-Notizen, offene Punkte, Wiederherstellungsanleitung
 
-## Status (Stand 2026-09-16)
+## Status (Stand 2026-09-18)
 
 **Erledigt:**
-- SSH-Zugriff per Schlüssel eingerichtet, passwortloses sudo für Ersteinrichtung
-- Bestandsaufnahme: Modell, OS, RAM/Swap (zram, bereits optimal), Temperatur, USB, Display, Touch, Netzwerk
-- Display läuft nativ mit 1600×720 (Panel-EDID liefert ~59,05 Hz statt nominell 60 Hz –
-  technisch bedingt, visuell irrelevant, siehe `docs/display-notes.md`)
-- Touch korrekt erkannt (libinput, Identity-Kalibrierung, keine Achsenvertauschung)
-- Defektes WLAN-Profil (SSID-Schreibfehler) entfernt
-- Kiosk-Launcher-UI (schwarz, große Kacheln: CarPlay/Fahrzeugdaten/Einstellungen/Herunterfahren)
-- react-carplay v4.0.5 (arm64 AppImage, offizielles GitHub-Release) installiert
-- Umschaltung Launcher <-> CarPlay getestet (API + Touch-Geste)
-- Autostart nach Kaltstart verifiziert
+- Eigenes 64-bit-OS-Image per pi-gen (kein Desktop, kein Chrome, minimaler
+  Fußabdruck), als GitHub-Release veröffentlicht
+- Native GTK3-Launcher-UI (schwarz, Icon-Leiste + Kachel-Grid im MMI-Stil)
+- react-carplay v4.0.5 (arm64 AppImage) direkt ins Image einbelackt
+- Umschaltung Launcher <-> CarPlay über cage-Neustart, Touch-Geste zum Zurückkehren
+- Passwortlose-sudo-Vergabe beim Erstboot, unabhängig vom gewählten Benutzernamen
+- Vorschau der UI ganz ohne Pi-Hardware möglich (Docker-Container mit
+  Xvfb+VNC, siehe `docs/os-image-build.md`)
+- Bestandsaufnahme der ursprünglichen Pi-OS-Installation (Display, Touch,
+  Netzwerk, Audio-Pfad) – siehe `docs/display-notes.md`, `docs/audio-notes.md`
 
 **Noch offen:**
+- Neues Image auf der SD-Karte testen (physischer Neu-Flash steht aus)
 - Carlinkit-Dongle ist noch nicht gekauft/angeschlossen – USB-Erkennung und
   echtes CarPlay-Pairing (kabelgebunden/kabellos) stehen noch aus
-- Audioausgang (HDMI/3,5mm -> AMI-AUX) noch nicht konfiguriert
 - Mikrofonlösung noch offen (Audi-Originalmikrofon ist NICHT automatisch am Pi verfügbar)
 - Fahrzeugdaten-Seite (CAN, nur lesend) – noch nicht begonnen, siehe `docs/vehicle-data-plan.md`
-- Dienste-Optimierung (bluetooth/rpcbind/nfs-blkmap/packagekit prüfen und ggf. deaktivieren)
 - Finale Performance-/Boot-Zeit-Messung mit laufendem CarPlay (Video-Decoding ist der
   wahrscheinliche Engpass auf dem Zero 2 W)
-- Passwort auf dem Pi ändern (aktuell ein Test-Passwort, siehe `docs/security-notes.md`)
+- Icon-Feinschliff (aktuelles Einstellungen-Icon sieht eher nach Sonne als Zahnrad aus)
 
 ## Zugriff
 

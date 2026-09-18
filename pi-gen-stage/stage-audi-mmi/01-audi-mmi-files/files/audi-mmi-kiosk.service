@@ -1,0 +1,23 @@
+[Unit]
+Description=Audi MMI kiosk (cage + native launcher / CarPlay)
+After=systemd-user-sessions.service getty@tty1.service seatd.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/opt/audi-mmi/bin/kiosk-runner.sh
+User=1000
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=2
+UtmpIdentifier=tty1
+UtmpMode=user
+
+[Install]
+WantedBy=graphical.target

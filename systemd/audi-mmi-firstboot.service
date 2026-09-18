@@ -1,0 +1,12 @@
+[Unit]
+Description=Audi MMI first-boot user setup (groups + passwordless sudo)
+ConditionPathExists=!/etc/audi-mmi-firstboot-done
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/audi-mmi/bin/audi-mmi-firstboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
