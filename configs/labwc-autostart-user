@@ -1,0 +1,2 @@
+/usr/bin/kanshi &
+/usr/bin/lxsession-xdg-autostart &
