@@ -81,6 +81,15 @@ def go_home():
     start_chromium()
 
 
+def read_temperature_c():
+    try:
+        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True)
+        # format: temp=41.3'C
+        return float(out.split("=")[1].split("'")[0])
+    except Exception:
+        return None
+
+
 def carplay_device_connected():
     try:
         out = subprocess.check_output(["lsusb"], text=True)
@@ -108,6 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({
                 "carplayDeviceConnected": carplay_device_connected(),
                 "carplayRunning": carplay_running,
+                "temperatureC": read_temperature_c(),
             })
             return
         # static file serving
