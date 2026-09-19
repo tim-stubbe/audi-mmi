@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Concept preview: expressive Audi-inspired launcher with a true carousel."""
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import math
 
 W, H = 1600, 720
@@ -33,7 +33,16 @@ def gradient(size, top, bottom):
     return img
 
 
-im = gradient((W, H), (12, 12, 16), (3, 3, 5)).convert("RGBA")
+photo_path = Path(__file__).parents[1] / "assets" / "alps-background.jpg"
+if photo_path.exists():
+    photo = Image.open(photo_path).convert("RGB")
+    photo = ImageOps.fit(photo, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.58))
+    photo = photo.filter(ImageFilter.GaussianBlur(1.6)).convert("RGBA")
+    # The photograph stays recognisable but never competes with labels/cards.
+    photo = Image.blend(photo, Image.new("RGBA", (W, H), (2, 3, 7, 255)), 0.68)
+    im = photo
+else:
+    im = gradient((W, H), (12, 12, 16), (3, 3, 5)).convert("RGBA")
 d = ImageDraw.Draw(im)
 
 # Colored light deliberately brings back the visual drama of older MMI menus.
@@ -49,8 +58,9 @@ d = ImageDraw.Draw(im)
 d.text((42, 28), "AUDI MMI", font=fnt(18, True), fill="#e8e8eb")
 d.text((800, 24), "Hauptmenü", anchor="ma", font=fnt(25, True), fill="#ffffff")
 d.text((1518, 25), "18:42", anchor="ra", font=fnt(24, True), fill="#ffffff")
-d.ellipse((1411, 37, 1421, 47), fill="#56d26f")
-d.text((1392, 30), "CarPlay", anchor="ra", font=fnt(15), fill="#aaaaaf")
+d.text((1432, 30), "18°C", anchor="ra", font=fnt(17, True), fill="#e7e7ea")
+d.ellipse((1321, 37, 1331, 47), fill="#56d26f")
+d.text((1302, 30), "CarPlay", anchor="ra", font=fnt(15), fill="#aaaaaf")
 d.line((32, 72, 1568, 72), fill="#38383f", width=1)
 
 

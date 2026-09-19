@@ -8,23 +8,26 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="audi-mmi-pi"
 
 echo "==> Ordner auf dem Pi anlegen"
-ssh "$HOST" "sudo mkdir -p /opt/audi-mmi/launcher /opt/audi-mmi/bin /opt/audi-mmi/carplay && sudo chown -R tim:tim /opt/audi-mmi"
+ssh "$HOST" "sudo mkdir -p /opt/audi-mmi/native-launcher/assets /opt/audi-mmi/bin /opt/audi-mmi/carplay"
 
 echo "==> Launcher-Dateien kopieren"
-scp -q -r "$REPO_DIR"/launcher/* "$HOST":/opt/audi-mmi/launcher/
-scp -q "$REPO_DIR"/bin/touch-home-watcher.py "$HOST":/opt/audi-mmi/bin/
+scp -q "$REPO_DIR/native-launcher/launcher.py" "$HOST":/tmp/audi-mmi-launcher.py
+scp -q "$REPO_DIR/native-launcher/assets/alps-background.png" "$HOST":/tmp/audi-mmi-alps-background.png
+scp -q "$REPO_DIR/bin/kiosk-runner.sh" "$REPO_DIR/bin/touch-home-watcher.py" "$HOST":/tmp/
 
 echo "==> systemd-Units und udev-Regel kopieren"
 scp -q "$REPO_DIR"/systemd/*.service "$HOST":/tmp/
 scp -q "$REPO_DIR"/carplay/99-carlinkit.rules "$HOST":/tmp/
-ssh "$HOST" "sudo mv /tmp/audi-mmi-ui.service /tmp/audi-mmi-home-watcher.service /etc/systemd/system/ && \
-  sudo chown root:root /etc/systemd/system/audi-mmi-ui.service /etc/systemd/system/audi-mmi-home-watcher.service && \
+ssh "$HOST" "sudo install -m 644 /tmp/audi-mmi-launcher.py /opt/audi-mmi/native-launcher/launcher.py && \
+  sudo install -m 644 /tmp/audi-mmi-alps-background.png /opt/audi-mmi/native-launcher/assets/alps-background.png && \
+  sudo install -m 755 /tmp/kiosk-runner.sh /tmp/touch-home-watcher.py /opt/audi-mmi/bin/ && \
+  sudo mv /tmp/audi-mmi-kiosk.service /tmp/audi-mmi-home-watcher.service /tmp/audi-mmi-firstboot.service /etc/systemd/system/ && \
+  sudo chown root:root /etc/systemd/system/audi-mmi-*.service && \
   sudo mv /tmp/99-carlinkit.rules /etc/udev/rules.d/ && \
   sudo udevadm control --reload-rules && \
-  sudo usermod -aG plugdev,input tim && \
   sudo systemctl daemon-reload && \
-  sudo systemctl enable --now audi-mmi-ui.service && \
+  sudo systemctl enable --now audi-mmi-kiosk.service && \
   sudo systemctl enable --now audi-mmi-home-watcher.service"
 
 echo "==> Fertig. Status:"
-ssh "$HOST" "systemctl is-active audi-mmi-ui.service audi-mmi-home-watcher.service"
+ssh "$HOST" "systemctl is-active audi-mmi-kiosk.service audi-mmi-home-watcher.service"

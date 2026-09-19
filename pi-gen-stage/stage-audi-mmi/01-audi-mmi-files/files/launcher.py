@@ -11,8 +11,10 @@ react-carplay when it is actually running.
 import os
 import subprocess
 import time
+from pathlib import Path
 
 import math
+import cairo
 
 import gi
 
@@ -185,21 +187,232 @@ def read_temperature_c():
         return None
 
 
+def read_outside_temperature_c():
+    """Read a future CAN/weather bridge without coupling the UI to hardware.
+
+    A CAN reader can atomically write one number to this runtime file. Until
+    that service exists, the header deliberately shows ``--°C`` rather than
+    pretending that the Pi CPU temperature is the outside temperature.
+    """
+    candidates = (
+        "/run/audi-mmi/outside-temperature",
+        "/tmp/audi-mmi-outside-temperature",
+    )
+    for path in candidates:
+        try:
+            value = float(Path(path).read_text(encoding="utf-8").strip())
+            if -50 <= value <= 60:
+                return value
+        except (OSError, ValueError):
+            pass
+    return None
+
+
+def _set_rgba(cr, rgb, alpha=1.0):
+    cr.set_source_rgba(rgb[0], rgb[1], rgb[2], alpha)
+
+
+def _rounded_rect(cr, x, y, w, h, radius):
+    radius = min(radius, w / 2, h / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - radius, y + radius, radius, -math.pi / 2, 0)
+    cr.arc(x + w - radius, y + h - radius, radius, 0, math.pi / 2)
+    cr.arc(x + radius, y + h - radius, radius, math.pi / 2, math.pi)
+    cr.arc(x + radius, y + radius, radius, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+def _text(cr, text, x, y, size, color=(1, 1, 1), bold=False, align="left"):
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL,
+                        cairo.FONT_WEIGHT_BOLD if bold else cairo.FONT_WEIGHT_NORMAL)
+    cr.set_font_size(size)
+    ext = cr.text_extents(text)
+    x_bearing = getattr(ext, "x_bearing", ext[0])
+    width = getattr(ext, "width", ext[2])
+    tx = x
+    if align == "center":
+        tx -= width / 2 + x_bearing
+    elif align == "right":
+        tx -= width + x_bearing
+    _set_rgba(cr, color)
+    cr.move_to(tx, y)
+    cr.show_text(text)
+
+
+def _paint_icon(cr, name, cx, cy, s, color=(0.97, 0.97, 0.98)):
+    _set_rgba(cr, color)
+    cr.set_line_width(max(3, s * 0.055))
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+
+    if name == "vehicle":
+        cr.move_to(cx-s*.48, cy+s*.15)
+        cr.line_to(cx-s*.35, cy-s*.18)
+        cr.line_to(cx-s*.2, cy-s*.29)
+        cr.line_to(cx+s*.22, cy-s*.29)
+        cr.line_to(cx+s*.38, cy-s*.14)
+        cr.line_to(cx+s*.48, cy+s*.15)
+        cr.stroke()
+        cr.move_to(cx-s*.52, cy+s*.15); cr.line_to(cx+s*.52, cy+s*.15); cr.stroke()
+        for wx in (-.23, .24):
+            cr.arc(cx+s*wx, cy+s*.16, s*.10, 0, math.tau); cr.stroke()
+    elif name == "media":
+        cr.arc(cx-s*.28, cy+s*.26, s*.12, 0, math.tau); cr.stroke()
+        cr.arc(cx+s*.25, cy+s*.14, s*.12, 0, math.tau); cr.stroke()
+        cr.move_to(cx-s*.16, cy+s*.26); cr.line_to(cx-s*.16, cy-s*.34)
+        cr.line_to(cx+s*.37, cy-s*.46); cr.line_to(cx+s*.37, cy+s*.14); cr.stroke()
+    elif name == "carplay":
+        for r in (.2, .34, .48):
+            cr.arc(cx, cy+s*.25, s*r, math.pi*1.18, math.pi*1.82); cr.stroke()
+        cr.arc(cx, cy+s*.25, s*.045, 0, math.tau); cr.fill()
+    elif name == "navigation":
+        cr.move_to(cx, cy-s*.45); cr.line_to(cx+s*.32, cy+s*.38)
+        cr.line_to(cx, cy+s*.20); cr.line_to(cx-s*.32, cy+s*.38)
+        cr.close_path(); cr.stroke()
+    elif name == "radio":
+        _rounded_rect(cr, cx-s*.42, cy-s*.25, s*.84, s*.56, s*.08); cr.stroke()
+        cr.arc(cx-s*.22, cy+s*.04, s*.10, 0, math.tau); cr.stroke()
+        cr.move_to(cx+s*.04, cy-s*.08); cr.line_to(cx+s*.29, cy-s*.08); cr.stroke()
+        cr.move_to(cx+s*.04, cy+s*.08); cr.line_to(cx+s*.29, cy+s*.08); cr.stroke()
+    elif name == "phone":
+        cr.arc(cx, cy, s*.36, math.pi*.67, math.pi*1.78); cr.stroke()
+    elif name == "settings":
+        cr.arc(cx, cy, s*.18, 0, math.tau); cr.stroke()
+        for i in range(8):
+            a = i*math.pi/4
+            cr.move_to(cx+math.cos(a)*s*.27, cy+math.sin(a)*s*.27)
+            cr.line_to(cx+math.cos(a)*s*.42, cy+math.sin(a)*s*.42); cr.stroke()
+    else:
+        cr.arc(cx, cy, s*.34, 0, math.tau); cr.stroke()
+
+
+class CarouselView(Gtk.DrawingArea):
+    """Single lightweight canvas: swipeable, animated-looking MMI carousel."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.selected = 0
+        self.press_x = None
+        self.connected = False
+        self.outside_temp = None
+        self.items = [
+            ("vehicle", "Fahrzeug", "Verbrauch · Fahrzeugstatus · Service", (0.43, .04, .10), owner.on_open_vehicle),
+            ("carplay", "Apple CarPlay", "Bereit zum Verbinden", (.03, .26, .17), owner.on_start_carplay),
+            ("navigation", "Navigation", "Karte und Ziele", (.04, .14, .30), lambda *_: owner.show_info("Navigation", "Navigation startet über Apple CarPlay.")),
+            ("media", "Media", "USB · Bluetooth · CarPlay", (.23, .08, .29), lambda *_: owner.show_info("Media", "Medien werden über CarPlay oder den Audi-Audioeingang wiedergegeben.")),
+            ("radio", "Radio", "Sender und Favoriten", (.28, .09, .12), lambda *_: owner.show_info("Radio", "Radio folgt mit der Audio-/Fahrzeugintegration.")),
+            ("phone", "Telefon", "Anrufe und Kontakte", (.05, .23, .27), lambda *_: owner.show_info("Telefon", "Telefonie wird über CarPlay bereitgestellt.")),
+            ("settings", "Einstellungen", "Display · Audio · System", (.23, .23, .25), owner.on_open_settings),
+            ("system", "System", "Status · Updates · Diagnose", (.15, .18, .23), owner.on_open_settings),
+        ]
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK |
+            Gdk.EventMask.BUTTON_RELEASE_MASK |
+            Gdk.EventMask.TOUCH_MASK
+        )
+        self.connect("draw", self._draw)
+        self.connect("button-press-event", self._press)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def _press(self, _widget, event):
+        self.press_x = event.x
+        return True
+
+    def _release(self, _widget, event):
+        if self.press_x is None:
+            return True
+        dx = event.x - self.press_x
+        self.press_x = None
+        if abs(dx) > 75:
+            self.selected = (self.selected - 1 if dx > 0 else self.selected + 1) % len(self.items)
+        elif event.x < self.get_allocated_width() * .30:
+            self.selected = (self.selected - 1) % len(self.items)
+        elif event.x > self.get_allocated_width() * .70:
+            self.selected = (self.selected + 1) % len(self.items)
+        else:
+            self.items[self.selected][4]()
+        self.queue_draw()
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_BEGIN:
+            self.press_x = event.x
+        elif event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+    def _card(self, cr, item, x, y, w, h, selected=False):
+        icon, title, subtitle, rgb, _action = item
+        _rounded_rect(cr, x, y, w, h, 28 if selected else 23)
+        _set_rgba(cr, rgb, .93 if selected else .88); cr.fill_preserve()
+        _set_rgba(cr, (0.9, .18, .28) if selected else tuple(min(1, c*1.8) for c in rgb), .95)
+        cr.set_line_width(2); cr.stroke()
+        _text(cr, title.upper(), x+36, y+48, 16, (.88, .72, .75) if selected else (.72, .72, .76), True)
+        _paint_icon(cr, icon, x+w/2, y+h*.46, 132 if selected else 84)
+        _text(cr, title, x+w/2, y+h-104, 34 if selected else 24, (1,1,1), True, "center")
+        _text(cr, subtitle, x+w/2, y+h-68, 17 if selected else 15, (.82,.75,.77), False, "center")
+        if selected:
+            _rounded_rect(cr, x+w/2-80, y+h-49, 160, 40, 20)
+            _set_rgba(cr, (1,1,1)); cr.fill()
+            _text(cr, "ÖFFNEN", x+w/2, y+h-23, 14, (.23,.03,.06), True, "center")
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        sx, sy = w / 1600.0, h / 720.0
+        cr.save(); cr.scale(sx, sy)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0); cr.paint()
+        else:
+            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        cr.set_source_rgba(.01, .01, .02, .34); cr.rectangle(0,0,1600,720); cr.fill()
+
+        _text(cr, "AUDI MMI", 42, 47, 18, (.91,.91,.93), True)
+        _text(cr, "Hauptmenü", 800, 50, 25, (1,1,1), True, "center")
+        _text(cr, time.strftime("%H:%M"), 1518, 49, 24, (1,1,1), True, "right")
+        temp = "--°C" if self.outside_temp is None else f"{round(self.outside_temp)}°C"
+        _text(cr, temp, 1432, 47, 17, (.91,.91,.93), True, "right")
+        _text(cr, "CarPlay" if self.connected else "CarPlay bereit", 1302, 45, 15, (.72,.72,.75), False, "right")
+        _set_rgba(cr, (.34,.82,.44) if self.connected else (.42,.42,.45)); cr.arc(1327, 40, 5, 0, math.tau); cr.fill()
+        cr.set_source_rgba(.4,.4,.43,.5); cr.set_line_width(1); cr.move_to(32,72); cr.line_to(1568,72); cr.stroke()
+
+        n = len(self.items)
+        previous = self.items[(self.selected-1) % n]
+        current = self.items[self.selected]
+        following = self.items[(self.selected+1) % n]
+        self._card(cr, previous, 170, 152, 350, 448, False)
+        self._card(cr, following, 1080, 152, 350, 448, False)
+        self._card(cr, current, 472, 112, 656, 513, True)
+        _text(cr, f"{self.selected+1} / {n}", 1080, 167, 15, (.86,.56,.60), False, "right")
+
+        start = 800 - ((n-1)*17+28)/2
+        for i in range(n):
+            x = start + i*17
+            if i == self.selected:
+                _rounded_rect(cr, x, 654, 28, 6, 3); _set_rgba(cr, (.89,.1,.18)); cr.fill()
+            else:
+                _set_rgba(cr, (.46,.46,.49)); cr.arc(x+13, 657, 3, 0, math.tau); cr.fill()
+        _text(cr, "‹", 43, 692, 36, (.76,.76,.78))
+        _text(cr, "›", 1557, 692, 36, (.76,.76,.78), False, "right")
+        _text(cr, "Wischen oder antippen", 800, 703, 13, (.52,.52,.55), False, "center")
+        cr.restore()
+        return False
+
+
 class Launcher(Gtk.Window):
     def __init__(self):
         super().__init__(title="MMI")
         self.fullscreen()
         self.set_decorated(False)
 
-        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        self.add(root)
-
-        root.pack_start(self._build_rail(), False, False, 0)
-
-        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        root.pack_start(main, True, True, 0)
-        main.pack_start(self._build_statusbar(), False, False, 0)
-        main.pack_start(self._build_grid(), True, True, 0)
+        self.carousel = CarouselView(self)
+        self.add(self.carousel)
 
         GLib.timeout_add_seconds(1, self._tick_clock)
         GLib.timeout_add_seconds(4, self._tick_status)
@@ -349,18 +562,14 @@ class Launcher(Gtk.Window):
         return grid
 
     def _tick_clock(self):
-        self.clock_label.set_text(time.strftime("%H:%M"))
+        self.carousel.queue_draw()
         return True
 
     def _tick_status(self):
         online = carplay_device_connected()
-        ctx = self.dot.get_style_context()
-        if online:
-            ctx.add_class("dot-online")
-            self.conn_label.set_text("CarPlay")
-        else:
-            ctx.remove_class("dot-online")
-            self.conn_label.set_text("CarPlay bereit")
+        self.carousel.connected = online
+        self.carousel.outside_temp = read_outside_temperature_c()
+        self.carousel.queue_draw()
         return True
 
     def on_start_carplay(self, *_args):

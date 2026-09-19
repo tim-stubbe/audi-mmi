@@ -1,12 +1,14 @@
 #!/bin/bash -e
 
 install -d "${ROOTFS_DIR}/opt/audi-mmi/native-launcher"
+install -d "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/assets"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/bin"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/carplay"
 install -d "${ROOTFS_DIR}/etc/systemd/system"
 install -d "${ROOTFS_DIR}/etc/udev/rules.d"
 
 install -m 644 files/launcher.py "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/launcher.py"
+install -m 644 files/assets/alps-background.png "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/assets/alps-background.png"
 install -m 755 files/kiosk-runner.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/kiosk-runner.sh"
 install -m 755 files/touch-home-watcher.py "${ROOTFS_DIR}/opt/audi-mmi/bin/touch-home-watcher.py"
 install -m 755 files/audi-mmi-firstboot.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-firstboot.sh"
