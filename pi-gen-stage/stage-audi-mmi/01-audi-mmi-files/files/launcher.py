@@ -78,6 +78,50 @@ def draw_icon(name, color):
             cr.move_to(cx, cy - s * 0.38)
             cr.line_to(cx, cy - s * 0.05)
             cr.stroke()
+        elif name == "radio":
+            cr.rectangle(s * 0.18, s * 0.35, s * 0.64, s * 0.42)
+            cr.stroke()
+            cr.move_to(s * 0.35, s * 0.35)
+            cr.line_to(s * 0.62, s * 0.15)
+            cr.stroke()
+            cr.arc(s * 0.35, s * 0.56, s * 0.08, 0, 2 * math.pi)
+            cr.stroke()
+        elif name == "media":
+            cr.arc(s * 0.35, s * 0.68, s * 0.09, 0, 2 * math.pi)
+            cr.stroke()
+            cr.arc(s * 0.68, s * 0.6, s * 0.09, 0, 2 * math.pi)
+            cr.stroke()
+            cr.move_to(s * 0.44, s * 0.68)
+            cr.line_to(s * 0.44, s * 0.25)
+            cr.line_to(s * 0.77, s * 0.18)
+            cr.line_to(s * 0.77, s * 0.6)
+            cr.stroke()
+        elif name == "phone":
+            cr.move_to(s * 0.28, s * 0.2)
+            cr.curve_to(s * 0.2, s * 0.3, s * 0.2, s * 0.5, s * 0.35, s * 0.65)
+            cr.curve_to(s * 0.5, s * 0.8, s * 0.7, s * 0.8, s * 0.8, s * 0.72)
+            cr.line_to(s * 0.68, s * 0.55)
+            cr.line_to(s * 0.55, s * 0.6)
+            cr.curve_to(s * 0.48, s * 0.52, s * 0.48, s * 0.52, s * 0.4, s * 0.45)
+            cr.line_to(s * 0.45, s * 0.32)
+            cr.line_to(s * 0.28, s * 0.2)
+            cr.close_path()
+            cr.stroke()
+        elif name == "messages":
+            cr.rectangle(s * 0.16, s * 0.28, s * 0.68, s * 0.46)
+            cr.stroke()
+            cr.move_to(s * 0.16, s * 0.3)
+            cr.line_to(s * 0.5, s * 0.56)
+            cr.line_to(s * 0.84, s * 0.3)
+            cr.stroke()
+        elif name == "navigation":
+            cx, cy = s * 0.5, s * 0.55
+            cr.move_to(cx, cy - s * 0.32)
+            cr.line_to(cx + s * 0.2, cy + s * 0.22)
+            cr.line_to(cx, cy + s * 0.1)
+            cr.line_to(cx - s * 0.2, cy + s * 0.22)
+            cr.close_path()
+            cr.stroke()
         return False
 
     area = Gtk.DrawingArea()
@@ -103,7 +147,8 @@ window { background-color: #050505; }
 .tile { background: transparent; border: none; border-radius: 0;
         border-right: 1px solid #232325; border-bottom: 1px solid #232325; }
 .tile:hover { background-color: #101011; }
-.tile-label { color: #7c7c80; font-size: 14px; letter-spacing: 1px; }
+.tile-label { color: #f2f2f3; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
+.tile-label-disabled { color: #4a4a4d; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
 .dot { min-width: 8px; min-height: 8px; border-radius: 4px; background-color: #7c7c80; }
 .dot-online { background-color: #3ecf5f; }
 """
@@ -153,8 +198,8 @@ class Launcher(Gtk.Window):
         rail.set_margin_top(22)
         rail.set_margin_bottom(22)
 
-        GREY = (0.486, 0.486, 0.502)
-        DANGER = (0.478, 0.086, 0.125)
+        GREY = (0.85, 0.85, 0.86)
+        DANGER = (0.886, 0.0, 0.102)
 
         def rail_button(icon_name, action, danger=False):
             btn = Gtk.Button()
@@ -207,32 +252,60 @@ class Launcher(Gtk.Window):
     def _build_grid(self):
         grid = Gtk.Grid(column_homogeneous=True, row_homogeneous=True)
 
+        # Echtes Audi-MMI-Vorbild: Icons sind schlicht hellgrau/weiss, die
+        # Kategorie-Farbe steckt nur im duennen Strich unter dem Icon - nicht
+        # im Icon selbst wie in der ersten Fassung.
+        ICON_COLOR = (0.92, 0.92, 0.93)
         ACCENTS = {
-            "carplay": (0.886, 0.0, 0.102),
-            "vehicle": (0.184, 0.714, 0.788),
-            "settings": (0.722, 0.722, 0.737),
+            "carplay": "#3fae3f",
+            "vehicle": "#e2001a",
+            "settings": "#b0b0b0",
         }
 
-        def tile(icon_name, label_text, action):
+        DISABLED_ICON = (0.42, 0.42, 0.44)
+        DISABLED_LINE = "#3a3a3d"
+
+        def tile(icon_name, label_text, action=None, disabled=False):
             btn = Gtk.Button()
             btn.set_relief(Gtk.ReliefStyle.NONE)
             btn.get_style_context().add_class("tile")
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
             box.set_halign(Gtk.Align.CENTER)
             box.set_valign(Gtk.Align.CENTER)
-            icon = draw_icon(icon_name, ACCENTS[icon_name])
-            icon.set_size_request(72, 72)
+            icon = draw_icon(icon_name, DISABLED_ICON if disabled else ICON_COLOR)
+            icon.set_size_request(64, 64)
+            underline = Gtk.Box()
+            underline.set_size_request(44, 4)
+            line_color = DISABLED_LINE if disabled else ACCENTS[icon_name]
+            css = Gtk.CssProvider()
+            css.load_from_data(
+                f"box {{ background-color: {line_color}; border-radius: 2px; }}".encode()
+            )
+            underline.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             label = Gtk.Label(label=label_text.upper())
-            label.get_style_context().add_class("tile-label")
+            label.get_style_context().add_class("tile-label-disabled" if disabled else "tile-label")
             box.pack_start(icon, False, False, 0)
+            box.pack_start(underline, False, False, 0)
             box.pack_start(label, False, False, 0)
             btn.add(box)
-            btn.connect("clicked", action)
+            if disabled:
+                btn.set_sensitive(False)
+            else:
+                btn.connect("clicked", action)
             return btn
 
-        grid.attach(tile("carplay", "CarPlay", self.on_start_carplay), 0, 0, 1, 1)
-        grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 0, 1, 1)
-        grid.attach(tile("settings", "Einstell.", self.on_open_settings), 2, 0, 1, 1)
+        # Layout an das echte Audi-MMI-Raster angelehnt (4x2). Radio/Media/
+        # Telefon/Nachrichten/Navigation sind bei uns deaktiviert, weil
+        # CarPlay diese Funktionen bereits vom iPhone aus übernimmt - hier
+        # nur fuers Layout, keine erfundene Funktionalitaet dahinter.
+        grid.attach(tile("radio", "Radio", disabled=True), 0, 0, 1, 1)
+        grid.attach(tile("media", "Media", disabled=True), 1, 0, 1, 1)
+        grid.attach(tile("phone", "Telefon", disabled=True), 2, 0, 1, 1)
+        grid.attach(tile("messages", "Nachrichten", disabled=True), 3, 0, 1, 1)
+        grid.attach(tile("navigation", "Navigation", disabled=True), 0, 1, 1, 1)
+        grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 1, 1, 1)
+        grid.attach(tile("settings", "Einstell.", self.on_open_settings), 2, 1, 1, 1)
+        grid.attach(tile("carplay", "CarPlay", self.on_start_carplay), 3, 1, 1, 1)
         return grid
 
     def _tick_clock(self):
