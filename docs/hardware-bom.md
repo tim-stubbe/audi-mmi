@@ -2,11 +2,12 @@
 
 ## Rechner und Anzeige
 
-- Raspberry Pi 5, 4 GB RAM
+- Raspberry Pi 5, 1 GB RAM. Das ist für das schlanke Kiosk-Image ausreichend,
+  weil Launcher und CarPlay abwechselnd statt parallel laufen. 2 GB bleiben eine
+  Komfortoption; 4 GB bringen für diesen Einbau keinen praktischen Vorteil.
 - Raspberry Pi Active Cooler
 - vorhandenes Waveshare 10.4HP-CAPQLED (1600×720)
-- Micro-HDMI-auf-HDMI-Kabel; das vorhandene Mini-HDMI-Kabel des Pi Zero passt
-  nicht an den Pi 5
+- vorhandener Micro-HDMI-auf-HDMI-Adapter; kein weiterer Adapter erforderlich
 - vorhandene microSD-Karte mit dem eigenen Audi-MMI-Image
 
 ## CarPlay und Audio

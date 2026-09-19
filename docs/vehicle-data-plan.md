@@ -8,7 +8,9 @@ Außentemperatur und Reichweite.
 
 ## Festgelegte Hardware
 
-- Raspberry Pi 5 mit 4 GB RAM, bereits bestücktem 40-Pin-Header und Active Cooler
+- Raspberry Pi 5 mit 1 GB RAM, bereits bestücktem 40-Pin-Header und Active Cooler.
+  Das schlanke Image führt Launcher und CarPlay nicht gleichzeitig aus; 1 GB plus zram
+  reicht daher für die festgelegte Funktion. CAN-Dienste benötigen nur wenig Speicher.
 - Waveshare **2-CH CAN HAT+** (MCP2515, galvanische Trennung, TVS-Schutz,
   7–36-V-Eingang). Nur ein Kanal wird zunächst verwendet; der zweite bleibt für
   einen späteren Infotainment-/Komfort-CAN frei.

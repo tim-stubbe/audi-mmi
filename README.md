@@ -1,12 +1,12 @@
 # Audi MMI – Raspberry Pi Infotainment & CarPlay
 
 Selbstgebautes Infotainment-/CarPlay-System für einen Audi A4 B8 Avant (EZ 11/2011)
-auf Basis eines Raspberry Pi 5 (4 GB), eines Waveshare 10.4HP-CAPQLED-Touchdisplays
+auf Basis eines Raspberry Pi 5 (1 GB), eines Waveshare 10.4HP-CAPQLED-Touchdisplays
 und eines Carlinkit CPC200-CCPA/CCPM CarPlay-Dongles.
 
 ## Hardware
 
-- Raspberry Pi 5 (4 GB) mit Active Cooler, eigenes 64-bit-Raspberry-Pi-OS-Image (Debian 13 "trixie")
+- Raspberry Pi 5 (1 GB) mit Active Cooler, eigenes 64-bit-Raspberry-Pi-OS-Image (Debian 13 "trixie"). Der Kiosk startet immer nur Launcher oder CarPlay; 2/4 GB sind dafür nicht erforderlich.
 - Waveshare 10.4HP-CAPQLED, 1600×720 @ ~59 Hz, HDMI + USB-C Touch
 - Carlinkit CPC200-CCPA/CCPM (kabelgebunden/kabellos CarPlay)
 - Audi Music Interface (AMI) auf USB bzw. 3,5mm AUX für späteren Ton
