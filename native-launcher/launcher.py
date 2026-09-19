@@ -148,10 +148,27 @@ window { background-color: #050505; }
         border-right: 1px solid #232325; border-bottom: 1px solid #232325; }
 .tile:hover { background-color: #101011; }
 .tile-label { color: #f2f2f3; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
-.tile-label-disabled { color: #4a4a4d; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
+.tile-label-disabled { color: #7c7c80; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
 .dot { min-width: 8px; min-height: 8px; border-radius: 4px; background-color: #7c7c80; }
 .dot-online { background-color: #3ecf5f; }
 """
+
+
+def read_volume_percent():
+    try:
+        out = subprocess.check_output(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], text=True)
+        # format: "Volume: 0.85"
+        return round(float(out.split(":")[1].strip().split(" ")[0]) * 100)
+    except Exception:
+        return 50
+
+
+def set_volume_percent(percent):
+    percent = max(0, min(100, percent))
+    try:
+        subprocess.Popen(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{percent / 100:.2f}"])
+    except Exception:
+        pass
 
 
 def carplay_device_connected():
@@ -262,47 +279,53 @@ class Launcher(Gtk.Window):
             "settings": "#b0b0b0",
         }
 
-        DISABLED_ICON = (0.42, 0.42, 0.44)
+        DISABLED_ICON = (0.6, 0.6, 0.62)
         DISABLED_LINE = "#3a3a3d"
 
-        def tile(icon_name, label_text, action=None, disabled=False):
+        def tile(icon_name, label_text, action, muted=False):
+            # Jede Kachel bleibt antippbar - auch die, hinter denen noch
+            # keine echte Funktion steckt. Ein totes, nicht reagierendes
+            # Icon fuehlt sich auf einem Touchscreen wie ein defektes
+            # Geraet an, auch wenn es "nur" ein Hinweistext ist.
             btn = Gtk.Button()
             btn.set_relief(Gtk.ReliefStyle.NONE)
             btn.get_style_context().add_class("tile")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
             box.set_halign(Gtk.Align.CENTER)
             box.set_valign(Gtk.Align.CENTER)
-            icon = draw_icon(icon_name, DISABLED_ICON if disabled else ICON_COLOR)
+            icon = draw_icon(icon_name, DISABLED_ICON if muted else ICON_COLOR)
             icon.set_size_request(64, 64)
             underline = Gtk.Box()
             underline.set_size_request(44, 4)
-            line_color = DISABLED_LINE if disabled else ACCENTS[icon_name]
+            line_color = DISABLED_LINE if muted else ACCENTS[icon_name]
             css = Gtk.CssProvider()
             css.load_from_data(
                 f"box {{ background-color: {line_color}; border-radius: 2px; }}".encode()
             )
             underline.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             label = Gtk.Label(label=label_text.upper())
-            label.get_style_context().add_class("tile-label-disabled" if disabled else "tile-label")
+            label.get_style_context().add_class("tile-label-disabled" if muted else "tile-label")
             box.pack_start(icon, False, False, 0)
             box.pack_start(underline, False, False, 0)
             box.pack_start(label, False, False, 0)
             btn.add(box)
-            if disabled:
-                btn.set_sensitive(False)
-            else:
-                btn.connect("clicked", action)
+            btn.connect("clicked", action)
             return btn
 
+        def covered_by_carplay(name):
+            return lambda *_a: self.show_info(
+                name, "Wird von CarPlay über dein iPhone bereitgestellt, sobald der Dongle verbunden ist."
+            )
+
         # Layout an das echte Audi-MMI-Raster angelehnt (4x2). Radio/Media/
-        # Telefon/Nachrichten/Navigation sind bei uns deaktiviert, weil
-        # CarPlay diese Funktionen bereits vom iPhone aus übernimmt - hier
-        # nur fuers Layout, keine erfundene Funktionalitaet dahinter.
-        grid.attach(tile("radio", "Radio", disabled=True), 0, 0, 1, 1)
-        grid.attach(tile("media", "Media", disabled=True), 1, 0, 1, 1)
-        grid.attach(tile("phone", "Telefon", disabled=True), 2, 0, 1, 1)
-        grid.attach(tile("messages", "Nachrichten", disabled=True), 3, 0, 1, 1)
-        grid.attach(tile("navigation", "Navigation", disabled=True), 0, 1, 1, 1)
+        # Telefon/Nachrichten/Navigation gibt es bei uns nicht als eigene
+        # Funktion, weil CarPlay das vom iPhone aus übernimmt - antippbar
+        # bleiben sie trotzdem, mit einem ehrlichen Hinweis statt totem Icon.
+        grid.attach(tile("radio", "Radio", covered_by_carplay("Radio"), muted=True), 0, 0, 1, 1)
+        grid.attach(tile("media", "Media", covered_by_carplay("Media"), muted=True), 1, 0, 1, 1)
+        grid.attach(tile("phone", "Telefon", covered_by_carplay("Telefon"), muted=True), 2, 0, 1, 1)
+        grid.attach(tile("messages", "Nachrichten", covered_by_carplay("Nachrichten"), muted=True), 3, 0, 1, 1)
+        grid.attach(tile("navigation", "Navigation", covered_by_carplay("Navigation"), muted=True), 0, 1, 1, 1)
         grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 1, 1, 1)
         grid.attach(tile("settings", "Einstell.", self.on_open_settings), 2, 1, 1, 1)
         grid.attach(tile("carplay", "CarPlay", self.on_start_carplay), 3, 1, 1, 1)
@@ -341,11 +364,46 @@ class Launcher(Gtk.Window):
     def on_go_home(self, *_args):
         pass  # already home; kept as a harmless no-op for the rail button
 
+    def show_info(self, title, message):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+        )
+        dialog.format_secondary_text(message)
+        dialog.run()
+        dialog.destroy()
+
     def on_open_vehicle(self, *_args):
-        pass  # Fahrzeugdaten-Seite folgt, sobald CAN-Hardware vorhanden ist
+        self.show_info(
+            "Fahrzeugdaten",
+            "Noch nicht verfügbar - wartet auf CAN-Bus-Hardware "
+            "(Bordspannung, Kühlmitteltemperatur, Verbrauch etc. folgen, "
+            "sobald die Auslesehardware angeschlossen ist).",
+        )
 
     def on_open_settings(self, *_args):
-        pass  # Platzhalter fuer spaetere Einstellungen
+        dialog = Gtk.Dialog(title="Einstellungen", transient_for=self, flags=0)
+        dialog.add_buttons("Schließen", Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(480, 200)
+        content = dialog.get_content_area()
+        content.set_spacing(16)
+        content.set_border_width(24)
+
+        vol_label = Gtk.Label(label="Lautstärke (HDMI-Audio)")
+        vol_label.set_halign(Gtk.Align.START)
+        content.pack_start(vol_label, False, False, 0)
+
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
+        scale.set_value(read_volume_percent())
+        scale.connect("value-changed", lambda s: set_volume_percent(int(s.get_value())))
+        content.pack_start(scale, False, False, 0)
+
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
 
     def on_shutdown(self, *_args):
         dialog = Gtk.MessageDialog(
