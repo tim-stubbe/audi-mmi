@@ -133,22 +133,20 @@ CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 CARLINKIT_VENDOR_ID = "1314"
 
 CSS = b"""
-window { background-color: #050505; }
-.rail { background-color: #0c0c0d; border-right: 1px solid #232325; }
-.rail-btn { min-width: 52px; min-height: 52px; border-radius: 12px;
-            background: transparent; color: #7c7c80; border: none; }
-.rail-btn:hover { background-color: #1c1c1e; color: #f2f2f3; }
+window { background-color: #070708; }
+.rail { background-color: #0b0b0c; border-right: 1px solid #29292d; }
+.rail-btn { min-width: 68px; min-height: 68px; border-radius: 13px;
+            background: transparent; color: #8b8b91; border: none; }
+.rail-btn:hover, .rail-btn-active { background-color: #1a1a1d; color: #f2f2f3; }
 .rail-btn-danger { color: #7a1620; }
-.statusbar { border-bottom: 1px solid #232325; }
-.status-label { color: #7c7c80; font-size: 14px; }
-.chip { border: 1px solid #232325; border-radius: 999px; padding: 3px 12px;
-        color: #7c7c80; font-size: 14px; }
-.clock { color: #f2f2f3; font-size: 18px; }
-.tile { background: transparent; border: none; border-radius: 0;
-        border-right: 1px solid #232325; border-bottom: 1px solid #232325; }
-.tile:hover { background-color: #101011; }
-.tile-label { color: #f2f2f3; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
-.tile-label-disabled { color: #7c7c80; font-size: 16px; font-weight: bold; letter-spacing: 0.5px; }
+.statusbar { border-bottom: 1px solid #29292d; }
+.page-title { color: #f2f2f3; font-size: 29px; font-weight: 600; }
+.page-subtitle { color: #8b8b91; font-size: 15px; }
+.status-label { color: #8b8b91; font-size: 15px; }
+.clock { color: #f2f2f3; font-size: 24px; font-weight: 600; }
+.tile { background-color: #111113; border: 1px solid #29292d; border-radius: 12px; }
+.tile:hover { background-color: #171719; border-color: #3a3a3f; }
+.tile-label { color: #f2f2f3; font-size: 18px; font-weight: 600; }
 .dot { min-width: 8px; min-height: 8px; border-radius: 4px; background-color: #7c7c80; }
 .dot-online { background-color: #3ecf5f; }
 """
@@ -211,9 +209,9 @@ class Launcher(Gtk.Window):
     def _build_rail(self):
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         rail.get_style_context().add_class("rail")
-        rail.set_size_request(84, -1)
-        rail.set_margin_top(22)
-        rail.set_margin_bottom(22)
+        rail.set_size_request(104, -1)
+        rail.set_margin_top(16)
+        rail.set_margin_bottom(16)
 
         GREY = (0.85, 0.85, 0.86)
         DANGER = (0.886, 0.0, 0.102)
@@ -229,7 +227,8 @@ class Launcher(Gtk.Window):
             rail.pack_start(btn, False, False, 0)
             return btn
 
-        rail_button("home", self.on_go_home)
+        home = rail_button("home", self.on_go_home)
+        home.get_style_context().add_class("rail-btn-active")
         rail_button("carplay", self.on_start_carplay)
         rail_button("vehicle", self.on_open_vehicle)
         rail_button("settings", self.on_open_settings)
@@ -243,31 +242,45 @@ class Launcher(Gtk.Window):
     def _build_statusbar(self):
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         bar.get_style_context().add_class("statusbar")
-        bar.set_size_request(-1, 52)
-        bar.set_margin_start(32)
-        bar.set_margin_end(32)
+        bar.set_size_request(-1, 108)
+        bar.set_margin_start(24)
+        bar.set_margin_end(30)
 
-        self.dot = Gtk.Box()
-        self.dot.get_style_context().add_class("dot")
-        self.conn_label = Gtk.Label(label="Kein Gerät verbunden")
-        self.conn_label.get_style_context().add_class("status-label")
-        left = Gtk.Box(spacing=10)
-        left.pack_start(self.dot, False, False, 0)
-        left.pack_start(self.conn_label, False, False, 0)
+        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        title_box.set_valign(Gtk.Align.CENTER)
+        title = Gtk.Label(label="Startseite")
+        title.set_halign(Gtk.Align.START)
+        title.get_style_context().add_class("page-title")
+        subtitle = Gtk.Label(label="Audi MMI")
+        subtitle.set_halign(Gtk.Align.START)
+        subtitle.get_style_context().add_class("page-subtitle")
+        title_box.pack_start(title, False, False, 0)
+        title_box.pack_start(subtitle, False, False, 0)
+        left = title_box
         bar.pack_start(left, True, True, 0)
 
-        self.temp_chip = Gtk.Label(label="--°C")
-        self.temp_chip.get_style_context().add_class("chip")
+        self.conn_label = Gtk.Label(label="CarPlay")
+        self.conn_label.get_style_context().add_class("status-label")
+        self.dot = Gtk.Box()
+        self.dot.get_style_context().add_class("dot")
         self.clock_label = Gtk.Label(label="--:--")
         self.clock_label.get_style_context().add_class("clock")
-        right = Gtk.Box(spacing=20)
-        right.pack_start(self.temp_chip, False, False, 0)
+        right = Gtk.Box(spacing=14)
+        right.set_valign(Gtk.Align.CENTER)
+        right.pack_start(self.conn_label, False, False, 0)
+        right.pack_start(self.dot, False, False, 0)
         right.pack_start(self.clock_label, False, False, 0)
         bar.pack_end(right, False, False, 0)
         return bar
 
     def _build_grid(self):
         grid = Gtk.Grid(column_homogeneous=True, row_homogeneous=True)
+        grid.set_column_spacing(12)
+        grid.set_row_spacing(12)
+        grid.set_margin_start(24)
+        grid.set_margin_end(30)
+        grid.set_margin_top(20)
+        grid.set_margin_bottom(26)
 
         # Echtes Audi-MMI-Vorbild: Icons sind schlicht hellgrau/weiss, die
         # Kategorie-Farbe steckt nur im duennen Strich unter dem Icon - nicht
@@ -279,10 +292,7 @@ class Launcher(Gtk.Window):
             "settings": "#b0b0b0",
         }
 
-        DISABLED_ICON = (0.6, 0.6, 0.62)
-        DISABLED_LINE = "#3a3a3d"
-
-        def tile(icon_name, label_text, action, muted=False):
+        def tile(icon_name, label_text, action):
             # Jede Kachel bleibt antippbar - auch die, hinter denen noch
             # keine echte Funktion steckt. Ein totes, nicht reagierendes
             # Icon fuehlt sich auf einem Touchscreen wie ein defektes
@@ -290,24 +300,31 @@ class Launcher(Gtk.Window):
             btn = Gtk.Button()
             btn.set_relief(Gtk.ReliefStyle.NONE)
             btn.get_style_context().add_class("tile")
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-            box.set_halign(Gtk.Align.CENTER)
-            box.set_valign(Gtk.Align.CENTER)
-            icon = draw_icon(icon_name, DISABLED_ICON if muted else ICON_COLOR)
-            icon.set_size_request(64, 64)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            box.set_margin_start(20)
+            box.set_margin_end(20)
+            box.set_margin_top(18)
+            box.set_margin_bottom(14)
+            icon_wrap = Gtk.Box()
+            icon_wrap.set_halign(Gtk.Align.CENTER)
+            icon_wrap.set_valign(Gtk.Align.CENTER)
+            icon = draw_icon(icon_name, ICON_COLOR)
+            icon.set_size_request(72, 72)
+            icon_wrap.pack_start(icon, False, False, 0)
             underline = Gtk.Box()
-            underline.set_size_request(44, 4)
-            line_color = DISABLED_LINE if muted else ACCENTS[icon_name]
+            underline.set_size_request(62, 4)
+            line_color = ACCENTS.get(icon_name, "#657d99")
             css = Gtk.CssProvider()
             css.load_from_data(
                 f"box {{ background-color: {line_color}; border-radius: 2px; }}".encode()
             )
             underline.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-            label = Gtk.Label(label=label_text.upper())
-            label.get_style_context().add_class("tile-label-disabled" if muted else "tile-label")
-            box.pack_start(icon, False, False, 0)
-            box.pack_start(underline, False, False, 0)
+            label = Gtk.Label(label=label_text)
+            label.set_halign(Gtk.Align.START)
+            label.get_style_context().add_class("tile-label")
+            box.pack_start(icon_wrap, True, True, 0)
             box.pack_start(label, False, False, 0)
+            box.pack_start(underline, False, False, 0)
             btn.add(box)
             btn.connect("clicked", action)
             return btn
@@ -321,14 +338,14 @@ class Launcher(Gtk.Window):
         # Telefon/Nachrichten/Navigation gibt es bei uns nicht als eigene
         # Funktion, weil CarPlay das vom iPhone aus übernimmt - antippbar
         # bleiben sie trotzdem, mit einem ehrlichen Hinweis statt totem Icon.
-        grid.attach(tile("radio", "Radio", covered_by_carplay("Radio"), muted=True), 0, 0, 1, 1)
-        grid.attach(tile("media", "Media", covered_by_carplay("Media"), muted=True), 1, 0, 1, 1)
-        grid.attach(tile("phone", "Telefon", covered_by_carplay("Telefon"), muted=True), 2, 0, 1, 1)
-        grid.attach(tile("messages", "Nachrichten", covered_by_carplay("Nachrichten"), muted=True), 3, 0, 1, 1)
-        grid.attach(tile("navigation", "Navigation", covered_by_carplay("Navigation"), muted=True), 0, 1, 1, 1)
+        grid.attach(tile("radio", "Radio", covered_by_carplay("Radio")), 0, 0, 1, 1)
+        grid.attach(tile("media", "Media", covered_by_carplay("Media")), 1, 0, 1, 1)
+        grid.attach(tile("phone", "Telefon", covered_by_carplay("Telefon")), 2, 0, 1, 1)
+        grid.attach(tile("navigation", "Navigation", covered_by_carplay("Navigation")), 3, 0, 1, 1)
+        grid.attach(tile("carplay", "Apple CarPlay", self.on_start_carplay), 0, 1, 1, 1)
         grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 1, 1, 1)
-        grid.attach(tile("settings", "Einstell.", self.on_open_settings), 2, 1, 1, 1)
-        grid.attach(tile("carplay", "CarPlay", self.on_start_carplay), 3, 1, 1, 1)
+        grid.attach(tile("settings", "Einstellungen", self.on_open_settings), 2, 1, 1, 1)
+        grid.attach(tile("home", "System", self.on_open_settings), 3, 1, 1, 1)
         return grid
 
     def _tick_clock(self):
@@ -336,17 +353,14 @@ class Launcher(Gtk.Window):
         return True
 
     def _tick_status(self):
-        temp = read_temperature_c()
-        if temp is not None:
-            self.temp_chip.set_text(f"{round(temp)}°C")
         online = carplay_device_connected()
         ctx = self.dot.get_style_context()
         if online:
             ctx.add_class("dot-online")
-            self.conn_label.set_text("Gerät verbunden")
+            self.conn_label.set_text("CarPlay")
         else:
             ctx.remove_class("dot-online")
-            self.conn_label.set_text("Kein Gerät verbunden")
+            self.conn_label.set_text("CarPlay bereit")
         return True
 
     def on_start_carplay(self, *_args):
