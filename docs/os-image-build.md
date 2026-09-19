@@ -77,3 +77,13 @@ anschauen - ganz ohne Raspberry-Pi-Hardware-Emulation. Ein Docker-Container
 mit `Xvfb` + `matchbox-window-manager` + `x11vnc` reicht für eine exakte
 1600x720-Vorschau per VNC. Praktisch für schnelles Feedback, bevor man die
 SD-Karte neu flasht.
+
+Die Vorschau auf dem TrueNAS-Testserver wird reproduzierbar aktualisiert mit:
+
+```bash
+./preview/deploy-truenas.sh
+```
+
+Der Container ist nur die virtuelle Anzeige für schnelle Design- und
+Bedienungstests. Das Fahrzeug verwendet weiterhin das eigene schlanke
+Raspberry-Pi-OS-Image ohne Desktop und ohne Ubuntu.
