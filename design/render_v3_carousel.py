@@ -75,13 +75,15 @@ def card(box, top, bottom, radius=24, outline="#404047", width=2):
 
 
 def car_icon(cx, cy, scale, color="#ffffff"):
-    pts = [(cx-scale*.46, cy+scale*.16), (cx-scale*.34, cy-scale*.18),
-           (cx-scale*.2, cy-scale*.29), (cx+scale*.22, cy-scale*.29),
-           (cx+scale*.38, cy-scale*.14), (cx+scale*.48, cy+scale*.16)]
+    pts = [(cx-scale*.52, cy+scale*.14), (cx-scale*.42, cy-scale*.04),
+           (cx-scale*.22, cy-scale*.15), (cx-scale*.05, cy-scale*.34),
+           (cx+scale*.25, cy-scale*.31), (cx+scale*.42, cy-scale*.10),
+           (cx+scale*.52, cy+scale*.14)]
     d.line(pts, fill=color, width=max(3, int(scale*.055)), joint="curve")
-    d.line((cx-scale*.52, cy+scale*.16, cx+scale*.52, cy+scale*.16), fill=color, width=max(3, int(scale*.055)))
-    d.ellipse((cx-scale*.33, cy+scale*.07, cx-scale*.13, cy+scale*.27), outline=color, width=max(3, int(scale*.045)))
-    d.ellipse((cx+scale*.14, cy+scale*.07, cx+scale*.34, cy+scale*.27), outline=color, width=max(3, int(scale*.045)))
+    d.line((cx-scale*.54, cy+scale*.14, cx+scale*.55, cy+scale*.14), fill=color, width=max(3, int(scale*.055)))
+    d.line((cx-scale*.02, cy-scale*.32, cx+scale*.02, cy-scale*.12, cx+scale*.33, cy-scale*.12), fill=color, width=max(2, int(scale*.035)))
+    d.ellipse((cx-scale*.42, cy+scale*.03, cx-scale*.20, cy+scale*.25), outline=color, width=max(3, int(scale*.045)))
+    d.ellipse((cx+scale*.20, cy+scale*.03, cx+scale*.42, cy+scale*.25), outline=color, width=max(3, int(scale*.045)))
 
 
 def note_icon(cx, cy, s):
@@ -96,9 +98,23 @@ def carplay_icon(cx, cy, s):
     d.ellipse((cx-5, cy+s*.29-5, cx+5, cy+s*.29+5), fill="#ffffff")
 
 
+def radio_icon(cx, cy, s):
+    d.rounded_rectangle((cx-s*.43, cy-s*.25, cx+s*.43, cy+s*.31), 9, outline="#ffffff", width=5)
+    d.line((cx-s*.24, cy-s*.25, cx+s*.10, cy-s*.53), fill="#ffffff", width=5)
+    d.ellipse((cx-s*.33, cy-s*.07, cx-s*.11, cy+s*.15), outline="#ffffff", width=5)
+    d.line((cx+s*.04, cy-s*.08, cx+s*.30, cy-s*.08), fill="#ffffff", width=5)
+    d.line((cx+s*.04, cy+s*.10, cx+s*.30, cy+s*.10), fill="#ffffff", width=5)
+
+
+def navigation_icon(cx, cy, s):
+    d.polygon([(cx, cy-s*.48), (cx+s*.33, cy+s*.40), (cx, cy+s*.20), (cx-s*.33, cy+s*.40)], outline="#ffffff")
+    d.line([(cx, cy-s*.48), (cx+s*.33, cy+s*.40), (cx, cy+s*.20), (cx-s*.33, cy+s*.40), (cx, cy-s*.48)], fill="#ffffff", width=5, joint="curve")
+
+
 # Outer cards remain visible and make the horizontal swipe behavior obvious.
 card((-105, 195, 265, 555), (35, 17, 48), (10, 8, 15), 22, "#4a3855")
 d.text((78, 234), "RADIO", anchor="ma", font=fnt(15, True), fill="#bcaec3")
+radio_icon(78, 354, 63)
 d.text((78, 460), "Favoriten", anchor="ma", font=fnt(20, True), fill="#ffffff")
 
 card((170, 152, 520, 600), (69, 30, 88), (18, 12, 24), 24, "#78548f")
@@ -129,6 +145,7 @@ d.text((1255, 530), "Bereit zum Verbinden", anchor="ma", font=fnt(15), fill="#a9
 
 card((1335, 195, 1705, 555), (17, 38, 75), (7, 11, 22), 22, "#314f7d")
 d.text((1522, 234), "NAVIGATION", anchor="ma", font=fnt(15, True), fill="#9eb4d7")
+navigation_icon(1522, 354, 63)
 d.text((1522, 460), "Karte", anchor="ma", font=fnt(20, True), fill="#ffffff")
 
 # Carousel position and gestures

@@ -9,6 +9,7 @@ react-carplay when it is actually running.
 """
 
 import os
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -246,16 +247,20 @@ def _paint_icon(cr, name, cx, cy, s, color=(0.97, 0.97, 0.98)):
     cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
     if name == "vehicle":
-        cr.move_to(cx-s*.48, cy+s*.15)
-        cr.line_to(cx-s*.35, cy-s*.18)
-        cr.line_to(cx-s*.2, cy-s*.29)
-        cr.line_to(cx+s*.22, cy-s*.29)
-        cr.line_to(cx+s*.38, cy-s*.14)
-        cr.line_to(cx+s*.48, cy+s*.15)
+        # Long, low side silhouette: closer to the user's A4 Avant than the
+        # generic front-view icon used in the first concept.
+        cr.move_to(cx-s*.52, cy+s*.13)
+        cr.curve_to(cx-s*.44, cy-s*.02, cx-s*.35, cy-s*.12, cx-s*.20, cy-s*.16)
+        cr.line_to(cx-s*.05, cy-s*.34)
+        cr.line_to(cx+s*.25, cy-s*.31)
+        cr.line_to(cx+s*.40, cy-s*.12)
+        cr.curve_to(cx+s*.49, cy-s*.08, cx+s*.53, cy, cx+s*.53, cy+s*.13)
         cr.stroke()
-        cr.move_to(cx-s*.52, cy+s*.15); cr.line_to(cx+s*.52, cy+s*.15); cr.stroke()
-        for wx in (-.23, .24):
-            cr.arc(cx+s*wx, cy+s*.16, s*.10, 0, math.tau); cr.stroke()
+        cr.move_to(cx-s*.54, cy+s*.13); cr.line_to(cx+s*.55, cy+s*.13); cr.stroke()
+        cr.move_to(cx-s*.02, cy-s*.32); cr.line_to(cx+s*.02, cy-s*.12)
+        cr.line_to(cx+s*.32, cy-s*.12); cr.stroke()
+        for wx in (-.31, .31):
+            cr.arc(cx+s*wx, cy+s*.14, s*.105, 0, math.tau); cr.stroke()
     elif name == "media":
         cr.arc(cx-s*.28, cy+s*.26, s*.12, 0, math.tau); cr.stroke()
         cr.arc(cx+s*.25, cy+s*.14, s*.12, 0, math.tau); cr.stroke()
@@ -286,6 +291,149 @@ def _paint_icon(cr, name, cx, cy, s, color=(0.97, 0.97, 0.98)):
         cr.arc(cx, cy, s*.34, 0, math.tau); cr.stroke()
 
 
+class SettingsStore:
+    """Small, durable settings file used by the launcher and future services."""
+
+    DEFAULTS = {
+        "volume": 50,
+        "brightness": 80,
+        "display_mode": "Auto",
+        "screen_timeout": "Nie",
+        "startup": "Hauptmenü",
+        "animations": True,
+        "touch_sounds": False,
+        "background_strength": 68,
+    }
+
+    def __init__(self):
+        self.path = Path.home() / ".config" / "audi-mmi" / "settings.json"
+        self.data = dict(self.DEFAULTS)
+        try:
+            loaded = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                self.data.update({k: v for k, v in loaded.items() if k in self.DEFAULTS})
+        except (OSError, ValueError, TypeError):
+            pass
+        self.data["volume"] = read_volume_percent()
+
+    def set(self, key, value):
+        if key not in self.DEFAULTS:
+            return
+        self.data[key] = value
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+            temporary.replace(self.path)
+        except OSError:
+            pass
+
+
+class SettingsView(Gtk.DrawingArea):
+    """Touch-first settings page without desktop-style GTK dialogs."""
+
+    def __init__(self, owner, store):
+        super().__init__()
+        self.owner, self.store = owner, store
+        self.hitboxes = []
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def _button(self, cr, ident, box, label, value, accent=(.86, .08, .16)):
+        x, y, w, h = box
+        _rounded_rect(cr, x, y, w, h, 17)
+        _set_rgba(cr, (.055, .058, .07), .91); cr.fill_preserve()
+        _set_rgba(cr, (.34, .35, .39), .9); cr.set_line_width(1.5); cr.stroke()
+        _text(cr, label, x+24, y+32, 15, (.68, .69, .73), True)
+        value_text = str(value)
+        value_size = 18 if len(value_text) > 27 else 20 if len(value_text) > 20 else 23
+        _text(cr, value_text, x+24, y+69, value_size, (1,1,1), True)
+        _set_rgba(cr, accent); cr.arc(x+w-29, y+h/2, 6, 0, math.tau); cr.fill()
+        self.hitboxes.append((ident, x, y, w, h))
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save(); cr.scale(w/1600.0, h/720.0)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0); cr.paint()
+        else:
+            cr.set_source_rgb(.02,.02,.03); cr.paint()
+        cr.set_source_rgba(.01,.01,.02,.68); cr.rectangle(0,0,1600,720); cr.fill()
+        self.hitboxes = []
+        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10,.10,.12), .94); cr.fill()
+        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1,1,1), True, "center")
+        self.hitboxes.append(("back", 34, 22, 116, 46))
+        _text(cr, "Einstellungen", 190, 56, 31, (1,1,1), True)
+        _text(cr, "Display · Audio · CarPlay · Fahrzeug", 190, 81, 15, (.7,.7,.74))
+
+        d = self.store.data
+        cards = [
+            ("volume_down", "Audio", f"Lautstärke  {d['volume']} %", (.65,.08,.16)),
+            ("brightness", "Display", f"Helligkeit  {d['brightness']} %", (.10,.36,.68)),
+            ("display_mode", "Darstellung", d["display_mode"], (.43,.20,.70)),
+            ("screen_timeout", "Bildschirm aus", d["screen_timeout"], (.17,.45,.52)),
+            ("startup", "Startansicht", d["startup"], (.10,.48,.30)),
+            ("animations", "Animationen", "Ein" if d["animations"] else "Aus", (.70,.34,.08)),
+            ("touch_sounds", "Tastentöne", "Ein" if d["touch_sounds"] else "Aus", (.45,.25,.18)),
+            ("background_strength", "Alpen-Hintergrund", f"{d['background_strength']} %", (.36,.38,.42)),
+            ("network", "Verbindungen", "WLAN · Bluetooth", (.08,.37,.62)),
+            ("carplay", "Apple CarPlay", "Dongle- und Audiostatus", (.08,.48,.27)),
+            ("vehicle", "Fahrzeug & CAN", "Hardware noch nicht verbunden", (.68,.06,.12)),
+            ("system", "System", "Temperatur · Speicher · Updates", (.28,.30,.34)),
+        ]
+        for i, (ident, label, value, accent) in enumerate(cards):
+            col, row = i % 4, i // 4
+            self._button(cr, ident, (42+col*389, 116+row*174, 363, 143), label, value, accent)
+        _text(cr, "Lautstärke: tippen = +5 %, lange Regelung folgt über die Lenkrad-/CAN-Anbindung.", 44, 683, 14, (.62,.62,.66))
+        cr.restore(); return False
+
+    def _activate(self, ident):
+        d = self.store.data
+        if ident == "back":
+            self.owner.on_go_home(); return
+        if ident == "volume_down":
+            value = (int(d["volume"]) + 5) % 105
+            self.store.set("volume", value); set_volume_percent(value)
+        elif ident == "brightness":
+            self.store.set("brightness", 25 if int(d["brightness"]) >= 100 else int(d["brightness"]) + 25)
+        elif ident == "display_mode":
+            options = ["Auto", "Tag", "Nacht"]
+            self.store.set("display_mode", options[(options.index(d["display_mode"]) + 1) % len(options)])
+        elif ident == "screen_timeout":
+            options = ["Nie", "30 Sek.", "2 Min.", "5 Min."]
+            self.store.set("screen_timeout", options[(options.index(d["screen_timeout"]) + 1) % len(options)])
+        elif ident == "startup":
+            self.store.set("startup", "CarPlay" if d["startup"] == "Hauptmenü" else "Hauptmenü")
+        elif ident in ("animations", "touch_sounds"):
+            self.store.set(ident, not bool(d[ident]))
+        elif ident == "background_strength":
+            self.store.set(ident, 35 if int(d[ident]) >= 85 else int(d[ident]) + 10)
+        elif ident in ("network", "carplay", "vehicle", "system"):
+            self.owner.show_info({"network":"Verbindungen", "carplay":"Apple CarPlay", "vehicle":"Fahrzeug & CAN", "system":"System"}[ident],
+                                 "Die Detailseite ist vorbereitet. Fahrzeugwerte werden freigeschaltet, sobald der CAN-Adapter angeschlossen und geprüft ist.")
+        self.queue_draw()
+
+    def _release(self, _widget, event):
+        sx, sy = 1600/self.get_allocated_width(), 720/self.get_allocated_height()
+        x, y = event.x*sx, event.y*sy
+        for ident, bx, by, bw, bh in self.hitboxes:
+            if bx <= x <= bx+bw and by <= y <= by+bh:
+                self._activate(ident); break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+
 class CarouselView(Gtk.DrawingArea):
     """Single lightweight canvas: swipeable, animated-looking MMI carousel."""
 
@@ -301,7 +449,7 @@ class CarouselView(Gtk.DrawingArea):
             ("carplay", "Apple CarPlay", "Bereit zum Verbinden", (.03, .26, .17), owner.on_start_carplay),
             ("navigation", "Navigation", "Karte und Ziele", (.04, .14, .30), lambda *_: owner.show_info("Navigation", "Navigation startet über Apple CarPlay.")),
             ("media", "Media", "USB · Bluetooth · CarPlay", (.23, .08, .29), lambda *_: owner.show_info("Media", "Medien werden über CarPlay oder den Audi-Audioeingang wiedergegeben.")),
-            ("radio", "Radio", "Sender und Favoriten", (.28, .09, .12), lambda *_: owner.show_info("Radio", "Radio folgt mit der Audio-/Fahrzeugintegration.")),
+            ("radio", "Radio", "FM · Sender · Favoriten", (.28, .09, .12), lambda *_: owner.show_info("Radio", "FM bleibt im originalen Audi-Radio. Die Senderanzeige und Bedienung werden nach der CAN/MMI-Anbindung in diese Oberfläche übernommen.")),
             ("phone", "Telefon", "Anrufe und Kontakte", (.05, .23, .27), lambda *_: owner.show_info("Telefon", "Telefonie wird über CarPlay bereitgestellt.")),
             ("settings", "Einstellungen", "Display · Audio · System", (.23, .23, .25), owner.on_open_settings),
             ("system", "System", "Status · Updates · Diagnose", (.15, .18, .23), owner.on_open_settings),
@@ -411,8 +559,15 @@ class Launcher(Gtk.Window):
         self.fullscreen()
         self.set_decorated(False)
 
+        self.settings_store = SettingsStore()
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(220)
         self.carousel = CarouselView(self)
-        self.add(self.carousel)
+        self.settings_view = SettingsView(self, self.settings_store)
+        self.stack.add_named(self.carousel, "home")
+        self.stack.add_named(self.settings_view, "settings")
+        self.add(self.stack)
 
         GLib.timeout_add_seconds(1, self._tick_clock)
         GLib.timeout_add_seconds(4, self._tick_status)
@@ -585,7 +740,7 @@ class Launcher(Gtk.Window):
         Gtk.main_quit()
 
     def on_go_home(self, *_args):
-        pass  # already home; kept as a harmless no-op for the rail button
+        self.stack.set_visible_child_name("home")
 
     def show_info(self, title, message):
         dialog = Gtk.MessageDialog(
@@ -608,25 +763,8 @@ class Launcher(Gtk.Window):
         )
 
     def on_open_settings(self, *_args):
-        dialog = Gtk.Dialog(title="Einstellungen", transient_for=self, flags=0)
-        dialog.add_buttons("Schließen", Gtk.ResponseType.CLOSE)
-        dialog.set_default_size(480, 200)
-        content = dialog.get_content_area()
-        content.set_spacing(16)
-        content.set_border_width(24)
-
-        vol_label = Gtk.Label(label="Lautstärke (HDMI-Audio)")
-        vol_label.set_halign(Gtk.Align.START)
-        content.pack_start(vol_label, False, False, 0)
-
-        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
-        scale.set_value(read_volume_percent())
-        scale.connect("value-changed", lambda s: set_volume_percent(int(s.get_value())))
-        content.pack_start(scale, False, False, 0)
-
-        dialog.show_all()
-        dialog.run()
-        dialog.destroy()
+        self.settings_view.queue_draw()
+        self.stack.set_visible_child_name("settings")
 
     def on_shutdown(self, *_args):
         dialog = Gtk.MessageDialog(

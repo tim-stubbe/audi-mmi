@@ -1,32 +1,48 @@
-# Fahrzeugdaten-Seite (Plan, noch nicht umgesetzt)
+# Fahrzeugdaten und CAN-Anbindung
 
-Ziel: eigene Seite im Launcher mit rein lesenden CAN-/Diagnosedaten:
-Bordspannung, Batterie-Ladezustand (Schätzung), Kühlmitteltemperatur,
-Drehzahl, Geschwindigkeit, Verbrauch.
+Ziel ist eine dauerhaft eingebaute, elektrisch getrennte CAN-Anbindung für den
+Audi A4 B8. Die erste Ausbaustufe liest ausschließlich mit. Sie liefert der
+MMI-Oberfläche Bordspannung, Drehzahl, Geschwindigkeit, Kühlmitteltemperatur,
+Verbrauch, Tür-/Klappenstatus und – soweit der jeweilige Bus sie bereitstellt –
+Außentemperatur und Reichweite.
 
-## Reihenfolge (verbindlich, bevor irgendetwas geschrieben/codiert wird)
+## Festgelegte Hardware
 
-1. Alle relevanten Steuergeräte des A4 B8 (Bj. 11/2011, wahrscheinlich MJ2012)
-   identifizieren (Motorsteuergerät, Kombiinstrument, ggf. Gateway).
-2. Originalwerte/-konfiguration sichern, bevor irgendein Diagnose-Tool aktiv
-   etwas anfragt, das potenziell Zustände verändert.
-3. Ausschließlich passives Mitlesen des CAN-Bus (Read-Only-Adapter, z.B. ein
-   USB-CAN-Interface mit dediziertem Empfangsfilter, keine UDS-Schreibzugriffe,
-   kein Flashen, kein Codieren).
-4. Erst danach: Mapping der benötigten PIDs/CAN-IDs für die gewünschten Werte,
-   auf Basis der A4-B8/MLB-Plattform-Dokumentation (nicht raten).
+- Raspberry Pi Zero 2 W mit eingelötetem 40-Pin-Header
+- Waveshare **2-CH CAN HAT+** (MCP2515, galvanische Trennung, TVS-Schutz,
+  7–36-V-Eingang). Nur ein Kanal wird zunächst verwendet; der zweite bleibt für
+  einen späteren Infotainment-/Komfort-CAN frei.
+- Abgesicherter, rückrüstbarer Abgriff: zunächst OBD-II-Verlängerung/Y-Kabel;
+  für den endgültigen unsichtbaren Einbau später ein fahrzeugspezifischer
+  Zwischenadapter am Gateway/MMI-Kabelbaum.
+- CAN-H, CAN-L und Masse. Der 120-Ohm-Abschluss auf dem HAT bleibt **aus**, weil
+  der Fahrzeugbus bereits an seinen Enden terminiert ist.
+- Eigene 1-A-Sicherung nahe dem 12-V-Abgriff.
+- Zündungs-/ACC-Erkennung plus verzögerte, saubere Abschaltung. Der Weitbereichs-
+  eingang des CAN-HATs ersetzt diese Abschaltlogik nicht. Dauerplus ohne
+  Abschaltung würde Batterie und SD-Karte unnötig belasten.
 
-## Offene Fragen für die Umsetzung
+## Einbau- und Testreihenfolge
 
-- Welcher CAN-Bus ist am Pi überhaupt zugänglich (Comfort-CAN/Infotainment-CAN
-  vs. Antriebs-CAN) und wie wird sicher (galvanisch getrennt, read-only)
-  angeschlossen? Das Original-MMI und dessen Kabelbaum dürfen dabei nicht
-  verändert werden.
-- Welche Hardware wird für den CAN-Zugriff verwendet (z.B. MCP2515-Modul,
-  USB-CAN-Adapter)? Noch nicht beschafft.
-- Kombiinstrument des B8 liefert viele Werte bereits über den Comfort-CAN;
-  Motorwerte (Drehzahl, Kühlmitteltemp, Verbrauch) eher über den Antriebs-CAN
-  bzw. per OBD-Port (PIDs zumindest teilweise standardisiert nach OBD-2).
+1. HAT zunächst am Tisch mit SocketCAN und `can-utils` prüfen.
+2. Im Auto ausschließlich passiv und im Listen-Only-Modus starten.
+3. Am OBD-Port zuerst Diagnose-CAN testen (typisch Pins 6/14, Masse 4/5). Die
+   Belegung wird vor Anschluss am konkreten Auto gemessen bzw. aus dem
+   Stromlaufplan bestätigt.
+4. Busgeschwindigkeit bestimmen, Nachrichten protokollieren und Zustandswechsel
+   kontrolliert zuordnen (Tür, Licht, Zündung usw.).
+5. Erst nach erfolgreichem Read-only-Test den unsichtbaren Zwischenadapter am
+   passenden Audi-Bus bauen. Kabelbaum nicht auftrennen.
+6. Schreibzugriffe, UDS-Anpassungen und Codierungen bleiben gesperrt, bis
+   Steuergeräte, Adressen, Sicherungskopien und Rückfallweg eindeutig sind.
 
-Dieser Plan wird erst konkretisiert, sobald CAN-Hardware vorhanden ist. Bis
-dahin bleibt der Tab "Fahrzeugdaten" im Launcher ein Platzhalter.
+## Originalradio
+
+Der originale Audi-Tuner und das MMI-Steuergerät bleiben angeschlossen. Damit
+bleiben FM/AM bzw. vorhandenes DAB und die Fahrzeug-Audiohardware erhalten. Der
+Pi ersetzt die sichtbare Oberfläche, nicht den Radioempfänger. Für eine
+vollständige Senderliste und Senderwahl auf dem neuen Display muss anschließend
+die Kommunikation zwischen MMI, Radio und Bedieneinheit gelesen und abgebildet
+werden. Bis dahin kann der zuletzt gewählte Sender weiterlaufen; vorhandene
+Originaltasten funktionieren nur, soweit ihre ursprüngliche Hardware weiterhin
+angeschlossen bleibt.
