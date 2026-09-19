@@ -1,12 +1,12 @@
 # Audi MMI – Raspberry Pi Infotainment & CarPlay
 
 Selbstgebautes Infotainment-/CarPlay-System für einen Audi A4 B8 Avant (EZ 11/2011)
-auf Basis eines Raspberry Pi Zero 2 W, eines Waveshare 10.4HP-CAPQLED-Touchdisplays
+auf Basis eines Raspberry Pi 5 (4 GB), eines Waveshare 10.4HP-CAPQLED-Touchdisplays
 und eines Carlinkit CPC200-CCPA/CCPM CarPlay-Dongles.
 
 ## Hardware
 
-- Raspberry Pi Zero 2 W (512MB RAM), eigenes 64-bit-Raspberry-Pi-OS-Image (Debian 13 "trixie")
+- Raspberry Pi 5 (4 GB) mit Active Cooler, eigenes 64-bit-Raspberry-Pi-OS-Image (Debian 13 "trixie")
 - Waveshare 10.4HP-CAPQLED, 1600×720 @ ~59 Hz, HDMI + USB-C Touch
 - Carlinkit CPC200-CCPA/CCPM (kabelgebunden/kabellos CarPlay)
 - Audi Music Interface (AMI) auf USB bzw. 3,5mm AUX für späteren Ton
@@ -42,8 +42,8 @@ systemd: audi-mmi-firstboot.service -> bin/audi-mmi-firstboot.sh
 ```
 
 Der Launcher ist bewusst eine native GTK3/Python-App statt Electron/Chromium
-(ursprünglicher Ansatz) – auf dem RAM-knappen Pi Zero 2 W (512MB) spart das
-gegenüber Chromium (~150-200MB) enorm viel Speicher für CarPlay selbst.
+(ursprünglicher Ansatz). Das hält Startzeit und Grundlast niedrig und lässt
+dem CarPlay-Prozess, CAN-Auswertung und späteren Fahrzeugseiten genügend Reserve.
 react-carplay wird als offizielles, vorgefertigtes AppImage genutzt (kein
 Quellcode-Build auf dem Pi) und beim Bau des OS-Images direkt einbelackt,
 damit das System auch ganz ohne Internetzugang CarPlay-bereit ist.
@@ -78,8 +78,7 @@ damit das System auch ganz ohne Internetzugang CarPlay-bereit ist.
   echtes CarPlay-Pairing (kabelgebunden/kabellos) stehen noch aus
 - Mikrofonlösung noch offen (Audi-Originalmikrofon ist NICHT automatisch am Pi verfügbar)
 - Fahrzeugdaten-Seite (CAN, nur lesend) – noch nicht begonnen, siehe `docs/vehicle-data-plan.md`
-- Finale Performance-/Boot-Zeit-Messung mit laufendem CarPlay (Video-Decoding ist der
-  wahrscheinliche Engpass auf dem Zero 2 W)
+- Finale Performance-/Boot-Zeit-Messung mit laufendem CarPlay auf dem Pi 5
 - Icon-Feinschliff (aktuelles Einstellungen-Icon sieht eher nach Sonne als Zahnrad aus)
 
 ## Zugriff

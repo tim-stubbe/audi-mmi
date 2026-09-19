@@ -8,7 +8,7 @@ Außentemperatur und Reichweite.
 
 ## Festgelegte Hardware
 
-- Raspberry Pi Zero 2 W mit eingelötetem 40-Pin-Header
+- Raspberry Pi 5 mit 4 GB RAM, bereits bestücktem 40-Pin-Header und Active Cooler
 - Waveshare **2-CH CAN HAT+** (MCP2515, galvanische Trennung, TVS-Schutz,
   7–36-V-Eingang). Nur ein Kanal wird zunächst verwendet; der zweite bleibt für
   einen späteren Infotainment-/Komfort-CAN frei.
@@ -17,7 +17,8 @@ Außentemperatur und Reichweite.
   Zwischenadapter am Gateway/MMI-Kabelbaum.
 - CAN-H, CAN-L und Masse. Der 120-Ohm-Abschluss auf dem HAT bleibt **aus**, weil
   der Fahrzeugbus bereits an seinen Enden terminiert ist.
-- Eigene 1-A-Sicherung nahe dem 12-V-Abgriff.
+- Eigene 3-A-Sicherung nahe dem 12-V-Abgriff. Der Pi 5 benötigt unter Last
+  deutlich mehr Leistung als der ursprünglich vorgesehene Zero 2 W.
 - Zündungs-/ACC-Erkennung plus verzögerte, saubere Abschaltung. Der Weitbereichs-
   eingang des CAN-HATs ersetzt diese Abschaltlogik nicht. Dauerplus ohne
   Abschaltung würde Batterie und SD-Karte unnötig belasten.
@@ -35,6 +36,16 @@ Außentemperatur und Reichweite.
    passenden Audi-Bus bauen. Kabelbaum nicht auftrennen.
 6. Schreibzugriffe, UDS-Anpassungen und Codierungen bleiben gesperrt, bis
    Steuergeräte, Adressen, Sicherungskopien und Rückfallweg eindeutig sind.
+
+## Stromversorgung des Pi 5
+
+Der 7–36-V-Eingang des 2-CH CAN HAT+ darf den Pi über den 40-Pin-Anschluss
+versorgen; Waveshare führt den HAT ausdrücklich als Pi-5-kompatibel. Die
+Versorgung kommt für den endgültigen Einbau von einem separat abgesicherten
+12-V-Abgriff und nicht dauerhaft aus Pin 16 der Diagnosebuchse. Zwischen
+Abgriff und HAT gehört eine Automotive-Abschaltsteuerung: ACC wird als Signal
+erfasst, das Betriebssystem fährt zuerst sauber herunter und erst danach wird
+die Versorgung zeitverzögert getrennt.
 
 ## Originalradio
 

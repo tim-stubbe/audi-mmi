@@ -10,3 +10,4 @@ pipewire
 pipewire-pulse
 wireplumber
 network-manager
+can-utils
