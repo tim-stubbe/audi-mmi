@@ -13,9 +13,9 @@ def font(size,bold=False):
     return ImageFont.load_default()
 
 im=ImageOps.fit(Image.open(root/'assets/alps-background.jpg').convert('RGB'),(W,H),Image.Resampling.LANCZOS,centering=(.5,.5)).filter(ImageFilter.GaussianBlur(1.2)).convert('RGBA')
-im=Image.blend(im,Image.new('RGBA',(W,H),(3,3,8,255)),.57)
+im=Image.blend(im,Image.new('RGBA',(W,H),(3,3,8,255)),.40)
+im=Image.alpha_composite(im,Image.new('RGBA',(W,H),(2,2,7,70)))
 d=ImageDraw.Draw(im,'RGBA')
-d.rectangle((0,0,W,H),fill=(2,2,7,100))
 d.rounded_rectangle((34,22,150,68),23,fill=(24,24,29,242))
 d.text((92,45),'‹  ZURÜCK',anchor='mm',font=font(14,True),fill='white')
 d.text((190,29),'Einstellungen',font=font(31,True),fill='white')

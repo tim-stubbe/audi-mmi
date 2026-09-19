@@ -365,7 +365,9 @@ class SettingsView(Gtk.DrawingArea):
             cr.set_source_surface(self.background, 0, 0); cr.paint()
         else:
             cr.set_source_rgb(.02,.02,.03); cr.paint()
-        cr.set_source_rgba(.01,.01,.02,.68); cr.rectangle(0,0,1600,720); cr.fill()
+        # Keep the same Alpine identity on every page while preserving enough
+        # contrast for controls and small status text.
+        cr.set_source_rgba(.01,.01,.02,.48); cr.rectangle(0,0,1600,720); cr.fill()
         self.hitboxes = []
         _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10,.10,.12), .94); cr.fill()
         _text(cr, "‹  ZURÜCK", 92, 52, 14, (1,1,1), True, "center")
