@@ -60,9 +60,9 @@ damit das System auch ganz ohne Internetzugang CarPlay-bereit ist.
 
 ## Updates nach dem Einbau
 
-Nach dem ersten Flashen werden normale MMI-Änderungen über SSH eingespielt;
-die SD-Karte muss dafür nicht mehr ausgebaut werden. Für den Zugriff über das
-Internet ist ein privates Tailscale-Netz vorgesehen. Ablauf, Rollback und die
+Nach dem ersten Flashen lädt der Pi freigegebene MMI-Updates selbst über den
+iPhone-Hotspot; Tailscale ist auf dem Pi nicht erforderlich. Die SD-Karte muss
+für normale Änderungen nicht mehr ausgebaut werden. Ablauf, Rollback und die
 Abgrenzung zu vollständigen Image-Updates stehen in
 [`docs/remote-updates.md`](docs/remote-updates.md).
 

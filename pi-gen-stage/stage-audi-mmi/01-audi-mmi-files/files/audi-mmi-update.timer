@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for an Audi MMI update shortly after boot
+
+[Timer]
+OnBootSec=2min
+AccuracySec=20s
+Unit=audi-mmi-update.service
+
+[Install]
+WantedBy=timers.target

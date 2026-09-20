@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs an MMI application update over SSH. The target can be a local
-# hostname or the Pi's stable Tailscale/MagicDNS name.
+# hostname or the Pi's address inside the shared iPhone-hotspot network.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +13,8 @@ ssh "$HOST" "rm -rf '$REMOTE_STAGE' && mkdir -p '$REMOTE_STAGE/native-launcher/a
 
 scp -q "$REPO_DIR/native-launcher/launcher.py" "$HOST:$REMOTE_STAGE/native-launcher/launcher.py"
 scp -q "$REPO_DIR/native-launcher/assets/alps-background.png" "$HOST:$REMOTE_STAGE/native-launcher/assets/alps-background.png"
-scp -q "$REPO_DIR/bin/kiosk-runner.sh" "$REPO_DIR/bin/touch-home-watcher.py" "$HOST:$REMOTE_STAGE/bin/"
+scp -q "$REPO_DIR/bin/kiosk-runner.sh" "$REPO_DIR/bin/touch-home-watcher.py" \
+  "$REPO_DIR/bin/audi-mmi-updater.py" "$HOST:$REMOTE_STAGE/bin/"
 scp -q "$REPO_DIR"/systemd/*.service "$HOST:$REMOTE_STAGE/systemd/"
 scp -q "$REPO_DIR/carplay/99-carlinkit.rules" "$HOST:$REMOTE_STAGE/carplay/"
 
@@ -24,13 +25,14 @@ STAGE="$1"
 VERSION="$2"
 BACKUP="/opt/audi-mmi/backups/$VERSION"
 
-python3 -m py_compile "$STAGE/native-launcher/launcher.py" "$STAGE/bin/touch-home-watcher.py"
+python3 -m py_compile "$STAGE/native-launcher/launcher.py" "$STAGE/bin/touch-home-watcher.py" "$STAGE/bin/audi-mmi-updater.py"
 bash -n "$STAGE/bin/kiosk-runner.sh"
 
 mkdir -p "$BACKUP/native-launcher/assets" "$BACKUP/bin" "$BACKUP/systemd" "$BACKUP/carplay"
 cp -a /opt/audi-mmi/native-launcher/launcher.py "$BACKUP/native-launcher/" 2>/dev/null || true
 cp -a /opt/audi-mmi/native-launcher/assets/alps-background.png "$BACKUP/native-launcher/assets/" 2>/dev/null || true
-cp -a /opt/audi-mmi/bin/kiosk-runner.sh /opt/audi-mmi/bin/touch-home-watcher.py "$BACKUP/bin/" 2>/dev/null || true
+cp -a /opt/audi-mmi/bin/kiosk-runner.sh /opt/audi-mmi/bin/touch-home-watcher.py \
+  /opt/audi-mmi/bin/audi-mmi-updater.py "$BACKUP/bin/" 2>/dev/null || true
 cp -a /etc/systemd/system/audi-mmi-*.service "$BACKUP/systemd/" 2>/dev/null || true
 cp -a /etc/udev/rules.d/99-carlinkit.rules "$BACKUP/carplay/" 2>/dev/null || true
 
@@ -49,14 +51,15 @@ trap rollback ERR
 install -d /opt/audi-mmi/native-launcher/assets /opt/audi-mmi/bin /opt/audi-mmi/carplay
 install -m 644 "$STAGE/native-launcher/launcher.py" /opt/audi-mmi/native-launcher/launcher.py
 install -m 644 "$STAGE/native-launcher/assets/alps-background.png" /opt/audi-mmi/native-launcher/assets/alps-background.png
-install -m 755 "$STAGE/bin/kiosk-runner.sh" "$STAGE/bin/touch-home-watcher.py" /opt/audi-mmi/bin/
+install -m 755 "$STAGE/bin/kiosk-runner.sh" "$STAGE/bin/touch-home-watcher.py" \
+  "$STAGE/bin/audi-mmi-updater.py" /opt/audi-mmi/bin/
 install -m 644 "$STAGE/systemd/"*.service /etc/systemd/system/
 install -m 644 "$STAGE/carplay/99-carlinkit.rules" /etc/udev/rules.d/99-carlinkit.rules
 printf '%s\n' "$VERSION" > /opt/audi-mmi/VERSION
 
 udevadm control --reload-rules
 systemctl daemon-reload
-systemctl enable audi-mmi-kiosk.service audi-mmi-home-watcher.service >/dev/null
+systemctl enable audi-mmi-kiosk.service audi-mmi-home-watcher.service audi-mmi-update.timer >/dev/null
 systemctl restart audi-mmi-kiosk.service audi-mmi-home-watcher.service
 sleep 2
 systemctl is-active --quiet audi-mmi-kiosk.service

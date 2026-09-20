@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Pull and install a tested MMI bundle from the latest GitHub release."""
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+
+REPOSITORY = "tim-stubbe/audi-mmi"
+ASSET_NAME = "audi-mmi-update.tar.gz"
+API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
+VERSION_FILE = Path("/opt/audi-mmi/VERSION")
+
+FILES = {
+    "native-launcher/launcher.py": (Path("/opt/audi-mmi/native-launcher/launcher.py"), 0o644),
+    "native-launcher/assets/alps-background.png": (Path("/opt/audi-mmi/native-launcher/assets/alps-background.png"), 0o644),
+    "bin/kiosk-runner.sh": (Path("/opt/audi-mmi/bin/kiosk-runner.sh"), 0o755),
+    "bin/touch-home-watcher.py": (Path("/opt/audi-mmi/bin/touch-home-watcher.py"), 0o755),
+    "bin/audi-mmi-updater.py": (Path("/opt/audi-mmi/bin/audi-mmi-updater.py"), 0o755),
+    "systemd/audi-mmi-kiosk.service": (Path("/etc/systemd/system/audi-mmi-kiosk.service"), 0o644),
+    "systemd/audi-mmi-home-watcher.service": (Path("/etc/systemd/system/audi-mmi-home-watcher.service"), 0o644),
+    "systemd/audi-mmi-update.service": (Path("/etc/systemd/system/audi-mmi-update.service"), 0o644),
+    "systemd/audi-mmi-update.timer": (Path("/etc/systemd/system/audi-mmi-update.timer"), 0o644),
+    "carplay/99-carlinkit.rules": (Path("/etc/udev/rules.d/99-carlinkit.rules"), 0o644),
+}
+
+
+def run(*command, check=True):
+    return subprocess.run(command, check=check, text=True, capture_output=True)
+
+
+def request_json(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "Audi-MMI-Updater/1"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.load(response)
+
+
+def download(url, target):
+    request = urllib.request.Request(url, headers={"User-Agent": "Audi-MMI-Updater/1"})
+    with urllib.request.urlopen(request, timeout=60) as response, target.open("wb") as output:
+        shutil.copyfileobj(response, output)
+
+
+def extract_safely(archive, destination):
+    destination = destination.resolve()
+    with tarfile.open(archive, "r:gz") as bundle:
+        for member in bundle.getmembers():
+            if member.issym() or member.islnk():
+                raise RuntimeError("Links sind im Updatepaket nicht erlaubt")
+            candidate = (destination / member.name).resolve()
+            if destination not in candidate.parents and candidate != destination:
+                raise RuntimeError("Ungültiger Pfad im Updatepaket")
+            bundle.extract(member, destination)
+
+
+def verify_bundle(root):
+    for relative in FILES:
+        if not (root / relative).is_file():
+            raise RuntimeError(f"Updatepaket unvollständig: {relative}")
+    run("python3", "-m", "py_compile", str(root / "native-launcher/launcher.py"),
+        str(root / "bin/touch-home-watcher.py"), str(root / "bin/audi-mmi-updater.py"))
+    run("bash", "-n", str(root / "bin/kiosk-runner.sh"))
+
+
+def install(root, version):
+    current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else "unbekannt"
+    backup = Path("/opt/audi-mmi/backups") / current.replace("/", "-")
+    backup.mkdir(parents=True, exist_ok=True)
+
+    for relative, (target, _mode) in FILES.items():
+        if target.exists():
+            saved = backup / relative
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, saved)
+
+    try:
+        for relative, (target, mode) in FILES.items():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".new")
+            shutil.copy2(root / relative, temporary)
+            os.chmod(temporary, mode)
+            temporary.replace(target)
+
+        run("udevadm", "control", "--reload-rules")
+        run("systemctl", "daemon-reload")
+        run("systemctl", "enable", "audi-mmi-update.timer")
+        run("systemctl", "restart", "audi-mmi-kiosk.service", "audi-mmi-home-watcher.service")
+        run("systemctl", "is-active", "--quiet", "audi-mmi-kiosk.service")
+        run("systemctl", "is-active", "--quiet", "audi-mmi-home-watcher.service")
+        VERSION_FILE.write_text(version + "\n", encoding="utf-8")
+    except Exception:
+        for relative, (target, mode) in FILES.items():
+            saved = backup / relative
+            if saved.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(saved, target)
+                os.chmod(target, mode)
+        run("systemctl", "daemon-reload", check=False)
+        run("systemctl", "restart", "audi-mmi-kiosk.service", "audi-mmi-home-watcher.service", check=False)
+        raise
+
+    backups = sorted((Path("/opt/audi-mmi/backups")).iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)
+    for old in backups[3:]:
+        if old.is_dir():
+            shutil.rmtree(old, ignore_errors=True)
+
+
+def main():
+    release = request_json(API_URL)
+    version = release["tag_name"]
+    current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else ""
+    if version == current:
+        print(f"Audi MMI ist aktuell ({version}).")
+        return
+
+    asset = next((item for item in release.get("assets", []) if item.get("name") == ASSET_NAME), None)
+    if not asset:
+        print(f"Release {version} enthält kein freigegebenes MMI-Update.")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="audi-mmi-update-") as temp:
+        temp = Path(temp)
+        archive = temp / ASSET_NAME
+        download(asset["browser_download_url"], archive)
+        digest = asset.get("digest") or ""
+        if digest.startswith("sha256:"):
+            actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if actual != digest.removeprefix("sha256:"):
+                raise RuntimeError("Prüfsumme des Updatepakets stimmt nicht")
+        payload = temp / "payload"
+        payload.mkdir()
+        extract_safely(archive, payload)
+        verify_bundle(payload)
+        install(payload, version)
+    print(f"Audi MMI wurde auf {version} aktualisiert.")
+
+
+if __name__ == "__main__":
+    main()

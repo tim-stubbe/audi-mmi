@@ -12,10 +12,13 @@ install -m 644 files/assets/alps-background.png "${ROOTFS_DIR}/opt/audi-mmi/nati
 install -m 755 files/kiosk-runner.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/kiosk-runner.sh"
 install -m 755 files/touch-home-watcher.py "${ROOTFS_DIR}/opt/audi-mmi/bin/touch-home-watcher.py"
 install -m 755 files/audi-mmi-firstboot.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-firstboot.sh"
+install -m 755 files/audi-mmi-updater.py "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-updater.py"
 
 install -m 644 files/audi-mmi-kiosk.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-kiosk.service"
 install -m 644 files/audi-mmi-home-watcher.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-home-watcher.service"
 install -m 644 files/audi-mmi-firstboot.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-firstboot.service"
+install -m 644 files/audi-mmi-update.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-update.service"
+install -m 644 files/audi-mmi-update.timer "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-update.timer"
 
 install -m 644 files/99-carlinkit.rules "${ROOTFS_DIR}/etc/udev/rules.d/99-carlinkit.rules"
 
@@ -36,5 +39,6 @@ systemctl enable seatd.service
 systemctl enable audi-mmi-kiosk.service
 systemctl enable audi-mmi-home-watcher.service
 systemctl enable audi-mmi-firstboot.service
+systemctl enable audi-mmi-update.timer
 systemctl disable bluetooth.service || true
 EOF

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a tested Audi MMI application update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py
+Nice=10
+IOSchedulingClass=idle
