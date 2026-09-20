@@ -133,6 +133,7 @@ def draw_icon(name, color):
     return area
 
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
+KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
 
 CSS = b"""
@@ -436,6 +437,108 @@ class SettingsView(Gtk.DrawingArea):
         return True
 
 
+class NavigationView(Gtk.DrawingArea):
+    """MMI navigation hub with Kies Drive as the primary destination."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.hitboxes = []
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def _card(self, cr, ident, box, title, subtitle, color, primary=False):
+        x, y, w, h = box
+        _rounded_rect(cr, x, y, w, h, 28)
+        _set_rgba(cr, color, .94 if primary else .88)
+        cr.fill_preserve()
+        _set_rgba(cr, tuple(min(1, value * 1.9) for value in color), .95)
+        cr.set_line_width(2)
+        cr.stroke()
+
+        icon_size = 118 if primary else 94
+        _paint_icon(cr, "navigation" if ident == "kies_drive" else "carplay",
+                    x + 108, y + h / 2, icon_size)
+        _text(cr, title, x + 205, y + 82, 35 if primary else 30, (1, 1, 1), True)
+        _text(cr, subtitle, x + 205, y + 122, 17, (.82, .84, .89))
+
+        button_w = 184 if primary else 160
+        _rounded_rect(cr, x + w - button_w - 34, y + h / 2 - 25, button_w, 50, 25)
+        _set_rgba(cr, (1, 1, 1), .97)
+        cr.fill()
+        _text(cr, "KIES DRIVE" if primary else "CARPLAY",
+              x + w - button_w / 2 - 34, y + h / 2 + 6, 15,
+              (.06, .08, .13) if primary else (.03, .20, .12), True, "center")
+        self.hitboxes.append((ident, x, y, w, h))
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save()
+        cr.scale(w / 1600.0, h / 720.0)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0)
+            cr.paint()
+        else:
+            cr.set_source_rgb(.02, .02, .03)
+            cr.paint()
+        cr.set_source_rgba(.01, .01, .02, .48)
+        cr.rectangle(0, 0, 1600, 720)
+        cr.fill()
+
+        self.hitboxes = []
+        _rounded_rect(cr, 34, 22, 116, 46, 23)
+        _set_rgba(cr, (.10, .10, .12), .94)
+        cr.fill()
+        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
+        self.hitboxes.append(("back", 34, 22, 116, 46))
+        _text(cr, "Navigation", 190, 56, 31, (1, 1, 1), True)
+        _text(cr, "Karte · Routen · Ziele", 190, 81, 15, (.7, .7, .74))
+
+        self._card(
+            cr, "kies_drive", (82, 128, 1436, 224), "Kies Drive",
+            "Deine eigene Navigation mit Routen, Tankstellen und Reiseplanung",
+            (.035, .16, .34), True,
+        )
+        self._card(
+            cr, "carplay", (82, 390, 1436, 176), "Navigation über CarPlay",
+            "Apple Karten und weitere Apps vom iPhone",
+            (.025, .25, .16), False,
+        )
+        _text(cr, "Kies Drive ist die Standardauswahl in diesem Menü.",
+              84, 626, 15, (.70, .71, .75))
+        cr.restore()
+        return False
+
+    def _activate(self, ident):
+        if ident == "back":
+            self.owner.on_go_home()
+        elif ident == "kies_drive":
+            self.owner.on_start_kies_drive()
+        elif ident == "carplay":
+            self.owner.on_start_carplay()
+
+    def _release(self, _widget, event):
+        sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
+        x, y = event.x * sx, event.y * sy
+        for ident, bx, by, bw, bh in self.hitboxes:
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self._activate(ident)
+                break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+
 class CarouselView(Gtk.DrawingArea):
     """Single lightweight canvas: swipeable, animated-looking MMI carousel."""
 
@@ -449,7 +552,7 @@ class CarouselView(Gtk.DrawingArea):
         self.items = [
             ("vehicle", "Fahrzeug", "Verbrauch · Fahrzeugstatus · Service", (0.43, .04, .10), owner.on_open_vehicle),
             ("carplay", "Apple CarPlay", "Bereit zum Verbinden", (.03, .26, .17), owner.on_start_carplay),
-            ("navigation", "Navigation", "Karte und Ziele", (.04, .14, .30), lambda *_: owner.show_info("Navigation", "Navigation startet über Apple CarPlay.")),
+            ("navigation", "Navigation", "Kies Drive · CarPlay", (.04, .14, .30), owner.on_open_navigation),
             ("media", "Media", "USB · Bluetooth · CarPlay", (.23, .08, .29), lambda *_: owner.show_info("Media", "Medien werden über CarPlay oder den Audi-Audioeingang wiedergegeben.")),
             ("radio", "Radio", "FM · Sender · Favoriten", (.28, .09, .12), lambda *_: owner.show_info("Radio", "FM bleibt im originalen Audi-Radio. Die Senderanzeige und Bedienung werden nach der CAN/MMI-Anbindung in diese Oberfläche übernommen.")),
             ("phone", "Telefon", "Anrufe und Kontakte", (.05, .23, .27), lambda *_: owner.show_info("Telefon", "Telefonie wird über CarPlay bereitgestellt.")),
@@ -567,8 +670,10 @@ class Launcher(Gtk.Window):
         self.stack.set_transition_duration(220)
         self.carousel = CarouselView(self)
         self.settings_view = SettingsView(self, self.settings_store)
+        self.navigation_view = NavigationView(self)
         self.stack.add_named(self.carousel, "home")
         self.stack.add_named(self.settings_view, "settings")
+        self.stack.add_named(self.navigation_view, "navigation")
         self.add(self.stack)
 
         GLib.timeout_add_seconds(1, self._tick_clock)
@@ -711,7 +816,7 @@ class Launcher(Gtk.Window):
         grid.attach(tile("radio", "Radio", covered_by_carplay("Radio")), 0, 0, 1, 1)
         grid.attach(tile("media", "Media", covered_by_carplay("Media")), 1, 0, 1, 1)
         grid.attach(tile("phone", "Telefon", covered_by_carplay("Telefon")), 2, 0, 1, 1)
-        grid.attach(tile("navigation", "Navigation", covered_by_carplay("Navigation")), 3, 0, 1, 1)
+        grid.attach(tile("navigation", "Navigation", self.on_open_navigation), 3, 0, 1, 1)
         grid.attach(tile("carplay", "Apple CarPlay", self.on_start_carplay), 0, 1, 1, 1)
         grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 1, 1, 1)
         grid.attach(tile("settings", "Einstellungen", self.on_open_settings), 2, 1, 1, 1)
@@ -743,6 +848,25 @@ class Launcher(Gtk.Window):
 
     def on_go_home(self, *_args):
         self.stack.set_visible_child_name("home")
+
+    def on_open_navigation(self, *_args):
+        self.navigation_view.queue_draw()
+        self.stack.set_visible_child_name("navigation")
+
+    def on_start_kies_drive(self, *_args):
+        if not os.path.isfile(KIES_DRIVE_EXECUTABLE) or not os.access(KIES_DRIVE_EXECUTABLE, os.X_OK):
+            self.show_info(
+                "Kies Drive",
+                "Kies Drive ist im Navigationsmenü eingerichtet. Für den Start auf dem "
+                "Raspberry Pi fehlt noch die Linux/ARM64-Ausgabe der App.",
+            )
+            return
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        marker_dir = os.path.join(runtime_dir, "audi-mmi")
+        os.makedirs(marker_dir, exist_ok=True)
+        with open(os.path.join(marker_dir, "next-app"), "w") as f:
+            f.write("kies-drive")
+        Gtk.main_quit()
 
     def show_info(self, title, message):
         dialog = Gtk.MessageDialog(

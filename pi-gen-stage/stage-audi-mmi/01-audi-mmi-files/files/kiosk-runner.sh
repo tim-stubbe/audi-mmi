@@ -8,6 +8,7 @@ set -u
 
 MARKER="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/audi-mmi/next-app"
 CARPLAY_APPIMAGE=/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage
+KIES_DRIVE_EXECUTABLE=/opt/audi-mmi/kies-drive/kies-drive
 
 mkdir -p "$(dirname "$MARKER")"
 
@@ -18,5 +19,8 @@ while true; do
   if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "carplay" ] && [ -x "$CARPLAY_APPIMAGE" ]; then
     rm -f "$MARKER"
     cage -- "$CARPLAY_APPIMAGE" --no-sandbox
+  elif [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "kies-drive" ] && [ -x "$KIES_DRIVE_EXECUTABLE" ]; then
+    rm -f "$MARKER"
+    cage -- "$KIES_DRIVE_EXECUTABLE"
   fi
 done
