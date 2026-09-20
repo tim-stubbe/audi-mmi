@@ -58,6 +58,14 @@ damit das System auch ganz ohne Internetzugang CarPlay-bereit ist.
 - `backups/pi/<datum>/` – Originalkonfigurationen (aus der Zeit vor dem Custom-Image)
 - `docs/` – Setup-Notizen, offene Punkte, Wiederherstellungsanleitung
 
+## Updates nach dem Einbau
+
+Nach dem ersten Flashen werden normale MMI-Änderungen über SSH eingespielt;
+die SD-Karte muss dafür nicht mehr ausgebaut werden. Für den Zugriff über das
+Internet ist ein privates Tailscale-Netz vorgesehen. Ablauf, Rollback und die
+Abgrenzung zu vollständigen Image-Updates stehen in
+[`docs/remote-updates.md`](docs/remote-updates.md).
+
 ## Status (Stand 2026-09-18)
 
 **Erledigt:**
