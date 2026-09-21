@@ -418,7 +418,10 @@ class SettingsView(Gtk.DrawingArea):
             self.store.set(ident, not bool(d[ident]))
         elif ident == "background_strength":
             self.store.set(ident, 35 if int(d[ident]) >= 85 else int(d[ident]) + 10)
-        elif ident in ("network", "carplay", "vehicle", "system"):
+        elif ident == "vehicle":
+            self.owner.on_open_vehicle()
+            return
+        elif ident in ("network", "carplay", "system"):
             self.owner.show_info({"network":"Verbindungen", "carplay":"Apple CarPlay", "vehicle":"Fahrzeug & CAN", "system":"System"}[ident],
                                  "Die Detailseite ist vorbereitet. Fahrzeugwerte werden freigeschaltet, sobald der CAN-Adapter angeschlossen und geprüft ist.")
         self.queue_draw()
@@ -429,6 +432,115 @@ class SettingsView(Gtk.DrawingArea):
         for ident, bx, by, bw, bh in self.hitboxes:
             if bx <= x <= bx+bw and by <= y <= by+bh:
                 self._activate(ident); break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+
+class VehicleSettingsView(Gtk.DrawingArea):
+    """Modern replacement for the vehicle pages of the original Audi MMI.
+
+    The entries are already usable as navigation targets. Reading or changing
+    real vehicle values remains locked until the CAN/diagnostic bridge has
+    identified the car and the relevant messages have been verified.
+    """
+
+    ITEMS = [
+        ("parking", "Einparkhilfe", "CAN erforderlich", (.76, .08, .14)),
+        ("oil", "Ölstand", "Messwert noch nicht verfügbar", (.72, .25, .07)),
+        ("service", "Serviceintervall", "Messwert noch nicht verfügbar", (.23, .42, .67)),
+        ("wipers", "Scheibenwischer", "Änderungen gesperrt", (.12, .46, .53)),
+        ("cluster", "Kombiinstrument", "Änderungen gesperrt", (.38, .22, .62)),
+        ("lights", "Außenbeleuchtung", "Änderungen gesperrt", (.72, .35, .07)),
+        ("windows", "Fenster", "Änderungen gesperrt", (.10, .43, .67)),
+        ("locking", "Zentralverriegelung", "Änderungen gesperrt", (.57, .10, .17)),
+        ("vin", "Fahrzeug-ID-Nummer", "Noch nicht ausgelesen", (.30, .32, .37)),
+    ]
+
+    DETAILS = {
+        "parking": ("Einparkhilfe", "Die vorhandenen Audi-Sensoren bleiben aktiv. Anzeige und Einstellungen werden nach der CAN-Prüfung eingebunden."),
+        "oil": ("Ölstand", "Der echte Ölstand wird hier angezeigt, sobald das Fahrzeug den Messwert über die geprüfte Diagnoseverbindung liefert."),
+        "service": ("Serviceintervall", "Kilometer und Zeit bis zum nächsten Service werden später aus dem Fahrzeug gelesen. Zurücksetzen bleibt zunächst gesperrt."),
+        "wipers": ("Scheibenwischer", "Regensensor- und Komfortfunktionen werden erst freigeschaltet, wenn der passende Audi-Diagnosebefehl sicher bestätigt ist."),
+        "cluster": ("Kombiinstrument", "Anzeigeoptionen des Kombiinstruments benötigen eine geprüfte Diagnoseverbindung. Bis dahin werden keine Werte geschrieben."),
+        "lights": ("Außenbeleuchtung", "Coming-/Leaving-Home und weitere Lichtoptionen werden nach der CAN- und Diagnoseprüfung ergänzt."),
+        "windows": ("Fenster", "Komfortöffnen und weitere Fensteroptionen bleiben bis zur geprüften Fahrzeuganbindung gesperrt."),
+        "locking": ("Zentralverriegelung", "Verriegelungsoptionen werden erst nach eindeutiger Fahrzeugerkennung und sicherem Schreibtest freigeschaltet."),
+        "vin": ("Fahrzeug-ID-Nummer", "Die Fahrzeug-ID wird nur lokal angezeigt, sobald sie über die Diagnoseverbindung gelesen werden kann."),
+    }
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.hitboxes = []
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def _card(self, cr, ident, box, title, status, accent):
+        x, y, w, h = box
+        _rounded_rect(cr, x, y, w, h, 18)
+        _set_rgba(cr, (.045, .048, .058), .92); cr.fill_preserve()
+        _set_rgba(cr, (.31, .32, .36), .92); cr.set_line_width(1.5); cr.stroke()
+        _rounded_rect(cr, x, y, 7, h, 3.5); _set_rgba(cr, accent); cr.fill()
+        _text(cr, title, x + 27, y + 44, 22, (1, 1, 1), True)
+        _text(cr, status, x + 27, y + 76, 15, (.67, .68, .72))
+        _text(cr, "›", x + w - 27, y + 63, 31, (.78, .79, .82), False, "center")
+        self.hitboxes.append((ident, x, y, w, h))
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save(); cr.scale(w / 1600.0, h / 720.0)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0); cr.paint()
+        else:
+            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        cr.set_source_rgba(.01, .01, .02, .52); cr.rectangle(0, 0, 1600, 720); cr.fill()
+
+        self.hitboxes = []
+        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10, .10, .12), .94); cr.fill()
+        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
+        self.hitboxes.append(("back", 34, 22, 116, 46))
+        _text(cr, "Fahrzeug", 190, 56, 31, (1, 1, 1), True)
+        _text(cr, "Komfort · Wartung · Fahrzeugdaten", 190, 81, 15, (.70, .70, .74))
+
+        _rounded_rect(cr, 1162, 24, 390, 52, 26)
+        _set_rgba(cr, (.08, .08, .10), .94); cr.fill_preserve()
+        _set_rgba(cr, (.42, .12, .16), .95); cr.set_line_width(1.5); cr.stroke()
+        _set_rgba(cr, (.86, .11, .18)); cr.arc(1192, 50, 6, 0, math.tau); cr.fill()
+        _text(cr, "CAN getrennt · Änderungen gesperrt", 1211, 57, 15, (.91, .91, .93), True)
+
+        for i, (ident, title, status, accent) in enumerate(self.ITEMS):
+            col, row = i % 3, i // 3
+            self._card(cr, ident, (42 + col * 519, 116 + row * 174, 493, 143), title, status, accent)
+        _text(cr, "Die Menüs sind vollständig vorbereitet. Fahrzeugzugriffe werden nach dem CAN-Test einzeln freigeschaltet.",
+              44, 683, 14, (.66, .66, .70))
+        cr.restore(); return False
+
+    def _activate(self, ident):
+        if ident == "back":
+            self.owner.on_go_home()
+            return
+        detail = self.DETAILS.get(ident)
+        if detail:
+            self.owner.show_info(*detail)
+
+    def _release(self, _widget, event):
+        sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
+        x, y = event.x * sx, event.y * sy
+        for ident, bx, by, bw, bh in self.hitboxes:
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self._activate(ident)
+                break
         return True
 
     def _touch(self, _widget, event):
@@ -670,9 +782,11 @@ class Launcher(Gtk.Window):
         self.stack.set_transition_duration(220)
         self.carousel = CarouselView(self)
         self.settings_view = SettingsView(self, self.settings_store)
+        self.vehicle_settings_view = VehicleSettingsView(self)
         self.navigation_view = NavigationView(self)
         self.stack.add_named(self.carousel, "home")
         self.stack.add_named(self.settings_view, "settings")
+        self.stack.add_named(self.vehicle_settings_view, "vehicle")
         self.stack.add_named(self.navigation_view, "navigation")
         self.add(self.stack)
 
@@ -881,12 +995,8 @@ class Launcher(Gtk.Window):
         dialog.destroy()
 
     def on_open_vehicle(self, *_args):
-        self.show_info(
-            "Fahrzeugdaten",
-            "Noch nicht verfügbar - wartet auf CAN-Bus-Hardware "
-            "(Bordspannung, Kühlmitteltemperatur, Verbrauch etc. folgen, "
-            "sobald die Auslesehardware angeschlossen ist).",
-        )
+        self.vehicle_settings_view.queue_draw()
+        self.stack.set_visible_child_name("vehicle")
 
     def on_open_settings(self, *_args):
         self.settings_view.queue_draw()
