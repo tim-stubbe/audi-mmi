@@ -10,9 +10,12 @@ react-carplay when it is actually running.
 
 import os
 import json
+import shutil
+import struct
 import subprocess
 import threading
 import time
+import wave
 from pathlib import Path
 
 import math
@@ -483,6 +486,7 @@ class SettingsView(Gtk.DrawingArea):
         self.queue_draw()
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         sx, sy = 1600/self.get_allocated_width(), 720/self.get_allocated_height()
         x, y = event.x*sx, event.y*sy
         for ident, bx, by, bw, bh in self.hitboxes:
@@ -725,6 +729,7 @@ class WifiSetupView(Gtk.DrawingArea):
             self._connect()
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
         x, y = event.x * sx, event.y * sy
         for ident, bx, by, bw, bh in self.hitboxes:
@@ -781,6 +786,7 @@ class InfoView(Gtk.DrawingArea):
         cr.restore(); return False
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         sx,sy=1600/self.get_allocated_width(),720/self.get_allocated_height()
         x,y=event.x*sx,event.y*sy
         for ident,bx,by,bw,bh in self.hitboxes:
@@ -885,6 +891,7 @@ class VehicleSettingsView(Gtk.DrawingArea):
             self.owner.show_info(*detail)
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
         x, y = event.x * sx, event.y * sy
         for ident, bx, by, bw, bh in self.hitboxes:
@@ -978,6 +985,7 @@ class NavigationView(Gtk.DrawingArea):
             self.owner.on_start_carplay()
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
         x, y = event.x * sx, event.y * sy
         for ident, bx, by, bw, bh in self.hitboxes:
@@ -1035,6 +1043,7 @@ class CarouselView(Gtk.DrawingArea):
         return True
 
     def _release(self, _widget, event):
+        self.owner.touch_feedback()
         if self.press_x is None:
             return True
         dx = event.x - self.press_x
@@ -1162,14 +1171,19 @@ class CarouselView(Gtk.DrawingArea):
 class BrightnessOverlay(Gtk.DrawingArea):
     """Software dimmer for HDMI panels without a Linux backlight interface."""
 
-    def __init__(self, store):
+    def __init__(self, store, owner):
         super().__init__()
         self.store = store
+        self.owner = owner
         self.set_hexpand(True)
         self.set_vexpand(True)
         self.connect("draw", self._draw)
 
     def _draw(self, _widget, cr):
+        if self.owner.screen_blank:
+            cr.set_source_rgb(0, 0, 0)
+            cr.paint()
+            return False
         data = self.store.data
         brightness = max(10, min(100, int(data.get("brightness", 100))))
         mode = data.get("display_mode", "Auto")
@@ -1187,6 +1201,9 @@ class Launcher(Gtk.Window):
         self.set_decorated(False)
 
         self.settings_store = SettingsStore()
+        self.screen_blank = False
+        self.last_interaction = time.monotonic()
+        self.touch_sound_path = self._prepare_touch_sound()
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(220)
@@ -1204,7 +1221,7 @@ class Launcher(Gtk.Window):
         self.stack.add_named(self.navigation_view, "navigation")
         self.root_overlay = Gtk.Overlay()
         self.root_overlay.add(self.stack)
-        self.brightness_overlay = BrightnessOverlay(self.settings_store)
+        self.brightness_overlay = BrightnessOverlay(self.settings_store, self)
         self.root_overlay.add_overlay(self.brightness_overlay)
         self.root_overlay.set_overlay_pass_through(self.brightness_overlay, True)
         self.add(self.root_overlay)
@@ -1212,8 +1229,11 @@ class Launcher(Gtk.Window):
 
         GLib.timeout_add_seconds(1, self._tick_clock)
         GLib.timeout_add_seconds(4, self._tick_status)
+        GLib.timeout_add_seconds(1, self._tick_screen_timeout)
         self._tick_clock()
         self._tick_status()
+        if self.settings_store.data.get("startup") == "CarPlay" and carplay_device_connected():
+            GLib.timeout_add(800, self._open_startup_carplay)
 
     def _build_rail(self):
         rail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -1368,7 +1388,63 @@ class Launcher(Gtk.Window):
         self.carousel.queue_draw()
         return True
 
+    def _tick_screen_timeout(self):
+        timeout = {
+            "Nie": None,
+            "30 Sek.": 30,
+            "2 Min.": 120,
+            "5 Min.": 300,
+        }.get(self.settings_store.data.get("screen_timeout"))
+        should_blank = timeout is not None and time.monotonic() - self.last_interaction >= timeout
+        if should_blank != self.screen_blank:
+            self.screen_blank = should_blank
+            self.brightness_overlay.queue_draw()
+        return True
+
+    def note_interaction(self):
+        self.last_interaction = time.monotonic()
+        if self.screen_blank:
+            self.screen_blank = False
+            self.brightness_overlay.queue_draw()
+
+    def _prepare_touch_sound(self):
+        path = Path("/tmp/audi-mmi-touch.wav")
+        try:
+            if not path.exists():
+                rate, duration = 16000, 0.035
+                samples = int(rate * duration)
+                with wave.open(str(path), "wb") as audio:
+                    audio.setparams((1, 2, rate, samples, "NONE", "not compressed"))
+                    frames = []
+                    for index in range(samples):
+                        envelope = 1.0 - index / samples
+                        value = int(3200 * envelope * math.sin(math.tau * 920 * index / rate))
+                        frames.append(struct.pack("<h", value))
+                    audio.writeframes(b"".join(frames))
+            return str(path)
+        except OSError:
+            return None
+
+    def touch_feedback(self):
+        self.note_interaction()
+        if not self.settings_store.data.get("touch_sounds", False):
+            return
+        player = shutil.which("pw-play") or shutil.which("aplay")
+        if player and self.touch_sound_path:
+            try:
+                subprocess.Popen([player, self.touch_sound_path], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                return
+            except OSError:
+                pass
+        Gdk.beep()
+
+    def _open_startup_carplay(self):
+        self.on_start_carplay()
+        return False
+
     def apply_visual_settings(self):
+        self.note_interaction()
         animations = bool(self.settings_store.data.get("animations", True))
         self.stack.set_transition_duration(220 if animations else 0)
         for view in (
