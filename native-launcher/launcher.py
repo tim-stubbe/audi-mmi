@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.5"
+APP_VERSION = "2026.09.23.6"
 UPDATE_STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
 INSTALL_UPDATE_MARKER = Path.home() / ".config" / "audi-mmi" / "install-update"
 
@@ -1098,7 +1098,6 @@ class CarouselView(Gtk.DrawingArea):
             ("radio", "Radio", "FM · Sender · Favoriten", (.28, .09, .12), lambda *_: owner.show_info("Radio", "FM bleibt im originalen Audi-Radio. Die Senderanzeige und Bedienung werden nach der CAN/MMI-Anbindung in diese Oberfläche übernommen.")),
             ("phone", "Telefon", "Anrufe und Kontakte", (.05, .23, .27), lambda *_: owner.show_info("Telefon", "Telefonie wird über CarPlay bereitgestellt.")),
             ("settings", "Einstellungen", "Display · Audio · System", (.23, .23, .25), owner.on_open_settings),
-            ("system", "System", "Status · Updates · Diagnose", (.15, .18, .23), owner.on_open_settings),
         ]
         bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
         try:
@@ -1428,7 +1427,6 @@ class Launcher(Gtk.Window):
         grid.attach(tile("carplay", "Apple CarPlay", self.on_start_carplay), 0, 1, 1, 1)
         grid.attach(tile("vehicle", "Fahrzeug", self.on_open_vehicle), 1, 1, 1, 1)
         grid.attach(tile("settings", "Einstellungen", self.on_open_settings), 2, 1, 1, 1)
-        grid.attach(tile("home", "System", self.on_open_settings), 3, 1, 1, 1)
         return grid
 
     def _tick_clock(self):

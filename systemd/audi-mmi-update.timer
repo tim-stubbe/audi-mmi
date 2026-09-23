@@ -2,10 +2,10 @@
 Description=Check for an Audi MMI update shortly after boot
 
 [Timer]
-OnBootSec=2min
+OnBootSec=10s
 OnUnitActiveSec=6h
-RandomizedDelaySec=20min
-AccuracySec=20s
+RandomizedDelaySec=0
+AccuracySec=1s
 Unit=audi-mmi-update.service
 
 [Install]
