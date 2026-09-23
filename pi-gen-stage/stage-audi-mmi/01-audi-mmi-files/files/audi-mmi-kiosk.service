@@ -5,6 +5,11 @@ Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
+# Existing installations need one self-contained migration pass: install the
+# native client's runtime libraries, then let the newly installed updater copy
+# the FastCarPlay payload before the kiosk starts. On later boots this is a
+# single executable check and performs no network or package operation.
+ExecStartPre=+/bin/sh -c 'if [ ! -x /opt/audi-mmi/fastcarplay/fastcarplay ]; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libsdl2-2.0-0 libsdl2-ttf-2.0-0 libavformat61 libavcodec61 libavutil59 libswscale8 libusb-1.0-0 libssl3t64 && AUDI_MMI_SKIP_KIOSK_RESTART=1 /usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --install; fi'
 ExecStart=/opt/audi-mmi/bin/kiosk-runner.sh
 User=1000
 SupplementaryGroups=input video render plugdev

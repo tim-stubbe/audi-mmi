@@ -1,0 +1,106 @@
+diff --git a/Makefile b/Makefile
+index 67896d9..e4227eb 100644
+--- a/Makefile
++++ b/Makefile
+@@ -40,8 +40,8 @@ else
+ endif
+ 
+ release: BUILD_TYPE := release
+-release: CXXFLAGS := -O2 -ffast-math -march=native -fno-plt -fno-rtti -flto=jobserver -fdata-sections -ffunction-sections -ffunction-sections -fomit-frame-pointer -fvisibility=hidden -pipe -DNDEBUG
+-release: LDFLAGS += -O2 -ffast-math -march=native -flto=jobserver -Wl,-O1 $(PLATFORM_LDFLAGS)
++release: CXXFLAGS := -O2 -ffast-math -mcpu=cortex-a76 -fno-plt -fno-rtti -flto=jobserver -fdata-sections -ffunction-sections -ffunction-sections -fomit-frame-pointer -fvisibility=hidden -pipe -DNDEBUG
++release: LDFLAGS += -O2 -ffast-math -mcpu=cortex-a76 -flto=jobserver -Wl,-O1 $(PLATFORM_LDFLAGS)
+ release: TARGET := $(TARGET_NAME)
+ release: prepare
+ 
+diff --git a/src/interface.cpp b/src/interface.cpp
+index 4079564..58cf43e 100644
+--- a/src/interface.cpp
++++ b/src/interface.cpp
+@@ -64,30 +64,30 @@ bool Interface::drawHome(bool force, int state, std::string name)
+     bool drawText = false;
+ 
+     if (state == PROTOCOL_STATUS_ERROR)
+-        if (_textStatus.prepare(_renderer, "Dongle error", colorError))
++        if (_textStatus.prepare(_renderer, "CarPlay-Adapterfehler", colorError))
+             drawText = true;
+ 
+     if (state == PROTOCOL_STATUS_NO_DEVICE)
+-        if (_textStatus.prepare(_renderer, "Insert dongle", colorError))
++        if (_textStatus.prepare(_renderer, "CarPlay-Adapter anschliessen", colorError))
+             drawText = true;
+ 
+     if (state == PROTOCOL_STATUS_INITIALISING)
+-        if (_textStatus.prepare(_renderer, "Initialising", color2))
++        if (_textStatus.prepare(_renderer, "CarPlay wird vorbereitet", color2))
+             drawText = true;
+ 
+     if (state == PROTOCOL_STATUS_LINKING)
+-        if (_textStatus.prepare(_renderer, "Initialising", color2))
++        if (_textStatus.prepare(_renderer, "CarPlay wird vorbereitet", color2))
+             drawText = true;
+ 
+     if (state == PROTOCOL_STATUS_ONLINE)
+-        if (_textStatus.prepare(_renderer, "Connect phone", color4))
++        if (_textStatus.prepare(_renderer, "iPhone verbinden", color4))
+             drawText = true;
+ 
+     if (state == PROTOCOL_STATUS_CONNECTED)
+     {
+         if(name.length()>0)
+-            name = " to "+name;
+-        if (_textStatus.prepare(_renderer, "Connecting"+name, color3))
++            name = " mit "+name;
++        if (_textStatus.prepare(_renderer, "Verbindung wird hergestellt"+name, color3))
+             drawText = true;
+     }
+ 
+diff --git a/src/protocol/connection.cpp b/src/protocol/connection.cpp
+index d51785d..e24d348 100644
+--- a/src/protocol/connection.cpp
++++ b/src/protocol/connection.cpp
+@@ -191,6 +191,25 @@ void Connection::mainLoop()
+     {
+         int linkCount = 0;
+         libusb_device_handle *handler = libusb_open_device_with_vid_pid(_context, Settings::vendorid, Settings::productid);
++        // Carlinkit ships the same CPC200 hardware with product IDs across
++        // the 0x1520..0x152f family. Keep the configured ID as the preferred
++        // match, then accept another member of that family so an OTA update
++        // does not depend on the exact dongle revision.
++        if (!handler)
++        {
++            libusb_device **devices = nullptr;
++            ssize_t count = libusb_get_device_list(_context, &devices);
++            for (ssize_t i = 0; i < count && !handler; ++i)
++            {
++                libusb_device_descriptor descriptor{};
++                if (libusb_get_device_descriptor(devices[i], &descriptor) == 0 &&
++                    descriptor.idVendor == Settings::vendorid.value &&
++                    (descriptor.idProduct & 0xfff0) == (Settings::productid.value & 0xfff0))
++                    libusb_open(devices[i], &handler);
++            }
++            if (devices)
++                libusb_free_device_list(devices, 1);
++        }
+         if (handler)
+         {
+             if (_state != PROTOCOL_STATUS_LINKING && _state != PROTOCOL_STATUS_ERROR)
+diff --git a/src/resource/colours.h b/src/resource/colours.h
+index 9c4609a..8250eeb 100644
+--- a/src/resource/colours.h
++++ b/src/resource/colours.h
+@@ -7,10 +7,10 @@ const SDL_Color color1_inactive = {255, 255, 255, 80};
+ const SDL_Color color2_inactive = {255, 255, 255, 80};
+ const SDL_Color color3_inactive = {255, 255, 255, 80};
+ const SDL_Color color4_inactive = {255, 255, 255, 80};
+-const SDL_Color color1 = {255, 87, 137, 255};
+-const SDL_Color color2 = {135, 98, 255, 255};
+-const SDL_Color color3 = {94, 228, 255, 255};
+-const SDL_Color color4 = {93, 255, 197, 255};
++const SDL_Color color1 = {230, 20, 45, 255};
++const SDL_Color color2 = {255, 255, 255, 255};
++const SDL_Color color3 = {230, 20, 45, 255};
++const SDL_Color color4 = {255, 255, 255, 255};
+ const SDL_Color colorError = {255, 83, 64, 255};
+ 
+ #endif /* SRC_RESOURCE_COLORS */

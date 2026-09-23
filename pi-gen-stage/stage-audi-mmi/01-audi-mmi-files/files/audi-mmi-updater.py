@@ -31,6 +31,10 @@ FILES = {
     "systemd/audi-mmi-update.service": (Path("/etc/systemd/system/audi-mmi-update.service"), 0o644),
     "systemd/audi-mmi-update.timer": (Path("/etc/systemd/system/audi-mmi-update.timer"), 0o644),
     "carplay/99-carlinkit.rules": (Path("/etc/udev/rules.d/99-carlinkit.rules"), 0o644),
+    "fastcarplay/fastcarplay": (Path("/opt/audi-mmi/fastcarplay/fastcarplay"), 0o755),
+    "fastcarplay/settings.txt": (Path("/opt/audi-mmi/fastcarplay/settings.txt"), 0o644),
+    "fastcarplay/LICENSE": (Path("/opt/audi-mmi/fastcarplay/LICENSE"), 0o644),
+    "fastcarplay/SOURCE.md": (Path("/opt/audi-mmi/fastcarplay/SOURCE.md"), 0o644),
 }
 
 
@@ -93,9 +97,10 @@ def install(root, version):
         run("udevadm", "control", "--reload-rules")
         run("systemctl", "daemon-reload")
         run("systemctl", "enable", "audi-mmi-update.timer")
-        run("systemctl", "restart", "audi-mmi-kiosk.service", "audi-mmi-home-watcher.service")
-        run("systemctl", "is-active", "--quiet", "audi-mmi-kiosk.service")
-        run("systemctl", "is-active", "--quiet", "audi-mmi-home-watcher.service")
+        if os.environ.get("AUDI_MMI_SKIP_KIOSK_RESTART") != "1":
+            run("systemctl", "restart", "audi-mmi-kiosk.service", "audi-mmi-home-watcher.service")
+            run("systemctl", "is-active", "--quiet", "audi-mmi-kiosk.service")
+            run("systemctl", "is-active", "--quiet", "audi-mmi-home-watcher.service")
         VERSION_FILE.write_text(version + "\n", encoding="utf-8")
     except Exception:
         for relative, (target, mode) in FILES.items():

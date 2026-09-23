@@ -4,6 +4,7 @@ install -d "${ROOTFS_DIR}/opt/audi-mmi/native-launcher"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/assets"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/bin"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/carplay"
+install -d "${ROOTFS_DIR}/opt/audi-mmi/fastcarplay"
 install -d "${ROOTFS_DIR}/etc/systemd/system"
 install -d "${ROOTFS_DIR}/etc/udev/rules.d"
 install -d "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi"
@@ -13,6 +14,8 @@ install -m 644 files/assets/alps-background.png "${ROOTFS_DIR}/opt/audi-mmi/nati
 install -m 755 files/kiosk-runner.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/kiosk-runner.sh"
 install -m 755 files/touch-home-watcher.py "${ROOTFS_DIR}/opt/audi-mmi/bin/touch-home-watcher.py"
 install -m 755 files/audi-mmi-updater.py "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-updater.py"
+install -m 755 files/fastcarplay/fastcarplay "${ROOTFS_DIR}/opt/audi-mmi/fastcarplay/fastcarplay"
+install -m 644 files/fastcarplay/settings.txt files/fastcarplay/LICENSE files/fastcarplay/SOURCE.md "${ROOTFS_DIR}/opt/audi-mmi/fastcarplay/"
 
 install -m 644 files/audi-mmi-kiosk.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-kiosk.service"
 install -m 644 files/audi-mmi-home-watcher.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-home-watcher.service"
@@ -23,7 +26,7 @@ install -m 644 files/99-carlinkit.rules "${ROOTFS_DIR}/etc/udev/rules.d/99-carli
 install -m 644 files/boot-splash/audi-mmi.plymouth "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.plymouth"
 install -m 644 files/boot-splash/audi-mmi.script "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.script"
 install -m 644 files/boot-splash/splash.png "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/splash.png"
-printf '%s\n' 'os-2026-09-23.7' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
+printf '%s\n' 'os-2026-09-23.8' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
 
 # Keep boot messages away from the visible kiosk VT and show the branded
 # Plymouth screen until the MMI service takes over tty1.

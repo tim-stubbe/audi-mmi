@@ -13,3 +13,11 @@ network-manager
 can-utils
 plymouth
 plymouth-themes
+libsdl2-2.0-0
+libsdl2-ttf-2.0-0
+libavformat61
+libavcodec61
+libavutil59
+libswscale8
+libusb-1.0-0
+libssl3t64
