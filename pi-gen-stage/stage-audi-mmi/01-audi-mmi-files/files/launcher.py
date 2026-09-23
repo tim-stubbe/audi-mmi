@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.1"
+APP_VERSION = "2026.09.23.2"
 
 
 def _split_nmcli_terse(line):
@@ -349,6 +349,22 @@ def _draw_back_button(cr):
     return box
 
 
+def _paint_display_dimming(cr, owner):
+    """Dim inside the page canvas so no overlay can intercept touch input."""
+    if owner.screen_blank:
+        alpha = 1.0
+    else:
+        data = owner.settings_store.data
+        brightness = max(10, min(100, int(data.get("brightness", 100))))
+        mode = data.get("display_mode", "Auto")
+        hour = time.localtime().tm_hour
+        night = mode == "Nacht" or (mode == "Auto" and (hour >= 20 or hour < 7))
+        alpha = min(.88, (1.0 - brightness / 100.0) + (.12 if night else 0.0))
+    if alpha > 0:
+        cr.set_source_rgba(0, 0, 0, alpha)
+        cr.paint()
+
+
 class SettingsStore:
     """Small, durable settings file used by the launcher and future services."""
 
@@ -447,6 +463,7 @@ class SettingsView(Gtk.DrawingArea):
             col, row = i % 4, i // 4
             self._button(cr, ident, (42+col*389, 116+row*174, 363, 143), label, value, accent)
         _text(cr, "Lautstärke: tippen = +5 %, lange Regelung folgt über die Lenkrad-/CAN-Anbindung.", 44, 683, 14, (.62,.62,.66))
+        _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
     def _activate(self, ident):
@@ -689,6 +706,7 @@ class WifiSetupView(Gtk.DrawingArea):
             self._key(cr, "connect", "VERBINDEN", (1182, 538, 193, 62), True)
             _text(cr, "Abbrechen", 800, 648, 16, (.80, .81, .84), True, "center")
             self.hitboxes.append(("cancel", 690, 616, 220, 48))
+        _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
     def _activate(self, ident):
@@ -783,6 +801,7 @@ class InfoView(Gtk.DrawingArea):
             _set_rgba(cr,(.31,.32,.36),.92); cr.set_line_width(1.5); cr.stroke()
             _text(cr,label,x+28,y+38,15,(.68,.69,.73),True)
             _text(cr,value,x+28,y+83,24,(1,1,1),True)
+        _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
     def _release(self, _widget, event):
@@ -880,6 +899,7 @@ class VehicleSettingsView(Gtk.DrawingArea):
             self._card(cr, ident, (42 + col * 519, 116 + row * 174, 493, 143), title, status, accent)
         _text(cr, "Die Menüs sind vollständig vorbereitet. Fahrzeugzugriffe werden nach dem CAN-Test einzeln freigeschaltet.",
               44, 683, 14, (.66, .66, .70))
+        _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
     def _activate(self, ident):
@@ -973,6 +993,7 @@ class NavigationView(Gtk.DrawingArea):
         )
         _text(cr, "Kies Drive ist die Standardauswahl in diesem Menü.",
               84, 626, 15, (.70, .71, .75))
+        _paint_display_dimming(cr, self.owner)
         cr.restore()
         return False
 
@@ -1164,33 +1185,8 @@ class CarouselView(Gtk.DrawingArea):
         _text(cr, "‹", 43, 692, 36, (.76,.76,.78))
         _text(cr, "›", 1557, 692, 36, (.76,.76,.78), False, "right")
         _text(cr, "Wischen oder antippen", 800, 703, 13, (.52,.52,.55), False, "center")
+        _paint_display_dimming(cr, self.owner)
         cr.restore()
-        return False
-
-
-class BrightnessOverlay(Gtk.DrawingArea):
-    """Software dimmer for HDMI panels without a Linux backlight interface."""
-
-    def __init__(self, store, owner):
-        super().__init__()
-        self.store = store
-        self.owner = owner
-        self.set_hexpand(True)
-        self.set_vexpand(True)
-        self.connect("draw", self._draw)
-
-    def _draw(self, _widget, cr):
-        if self.owner.screen_blank:
-            cr.set_source_rgb(0, 0, 0)
-            cr.paint()
-            return False
-        data = self.store.data
-        brightness = max(10, min(100, int(data.get("brightness", 100))))
-        mode = data.get("display_mode", "Auto")
-        night = mode == "Nacht" or (mode == "Auto" and (time.localtime().tm_hour >= 20 or time.localtime().tm_hour < 7))
-        alpha = (1.0 - brightness / 100.0) + (0.12 if night else 0.0)
-        cr.set_source_rgba(0, 0, 0, min(.88, alpha))
-        cr.paint()
         return False
 
 
@@ -1219,12 +1215,7 @@ class Launcher(Gtk.Window):
         self.stack.add_named(self.info_view, "info")
         self.stack.add_named(self.vehicle_settings_view, "vehicle")
         self.stack.add_named(self.navigation_view, "navigation")
-        self.root_overlay = Gtk.Overlay()
-        self.root_overlay.add(self.stack)
-        self.brightness_overlay = BrightnessOverlay(self.settings_store, self)
-        self.root_overlay.add_overlay(self.brightness_overlay)
-        self.root_overlay.set_overlay_pass_through(self.brightness_overlay, True)
-        self.add(self.root_overlay)
+        self.add(self.stack)
         self.apply_visual_settings()
 
         GLib.timeout_add_seconds(1, self._tick_clock)
@@ -1398,14 +1389,22 @@ class Launcher(Gtk.Window):
         should_blank = timeout is not None and time.monotonic() - self.last_interaction >= timeout
         if should_blank != self.screen_blank:
             self.screen_blank = should_blank
-            self.brightness_overlay.queue_draw()
+            for view in (
+                self.carousel, self.settings_view, self.wifi_setup_view,
+                self.info_view, self.vehicle_settings_view, self.navigation_view,
+            ):
+                view.queue_draw()
         return True
 
     def note_interaction(self):
         self.last_interaction = time.monotonic()
         if self.screen_blank:
             self.screen_blank = False
-            self.brightness_overlay.queue_draw()
+            for view in (
+                self.carousel, self.settings_view, self.wifi_setup_view,
+                self.info_view, self.vehicle_settings_view, self.navigation_view,
+            ):
+                view.queue_draw()
 
     def _prepare_touch_sound(self):
         path = Path("/tmp/audi-mmi-touch.wav")
@@ -1452,8 +1451,6 @@ class Launcher(Gtk.Window):
             self.info_view, self.vehicle_settings_view, self.navigation_view,
         ):
             view.queue_draw()
-        if hasattr(self, "brightness_overlay"):
-            self.brightness_overlay.queue_draw()
 
     def on_start_carplay(self, *_args):
         # Signals kiosk-runner.sh to relaunch cage with the CarPlay AppImage
