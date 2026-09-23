@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.2"
+APP_VERSION = "2026.09.23.3"
 
 
 def _split_nmcli_terse(line):
@@ -160,6 +160,26 @@ def _split_nmcli_terse(line):
         current.append("\\")
     fields.append("".join(current))
     return fields
+
+
+def read_wifi_connection():
+    """Return the active Wi-Fi connection name from NetworkManager."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/nmcli", "--terse", "--escape", "yes",
+             "--fields", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"],
+            check=True, text=True, capture_output=True, timeout=5,
+            env=dict(os.environ, LC_ALL="C", LANG="C"),
+        )
+        for line in result.stdout.splitlines():
+            fields = _split_nmcli_terse(line)
+            if len(fields) == 4 and fields[1] == "wifi" and fields[2] == "connected":
+                connection = fields[3].strip()
+                if connection and connection != "--":
+                    return connection
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
 
 CSS = b"""
 window { background-color: #070708; }
@@ -454,7 +474,7 @@ class SettingsView(Gtk.DrawingArea):
             ("animations", "Animationen", "Ein" if d["animations"] else "Aus", (.70,.34,.08)),
             ("touch_sounds", "Tastentöne", "Ein" if d["touch_sounds"] else "Aus", (.45,.25,.18)),
             ("background_strength", "Alpen-Hintergrund", f"{d['background_strength']} %", (.36,.38,.42)),
-            ("network", "Verbindungen", "WLAN einrichten", (.08,.37,.62)),
+            ("network", "Verbindungen", read_wifi_connection() or "WLAN einrichten", (.08,.37,.62)),
             ("carplay", "Apple CarPlay", "Dongle- und Audiostatus", (.08,.48,.27)),
             ("vehicle", "Fahrzeug & CAN", "Hardware noch nicht verbunden", (.68,.06,.12)),
             ("system", "Info", f"Version {read_mmi_version()}", (.28,.30,.34)),
@@ -582,11 +602,19 @@ class WifiSetupView(Gtk.DrawingArea):
         GLib.idle_add(self._finish_scan, networks[:7], error)
 
     def _finish_scan(self, networks, error):
+        active_connection = read_wifi_connection()
+        if active_connection:
+            networks = [
+                (ssid, signal, security, active or ssid == active_connection)
+                for ssid, signal, security, active in networks
+            ]
         self.networks = networks
         self.busy = False
         if error:
             short_error = error.replace("\n", " ")[:90]
             self.status = f"WLAN-Fehler: {short_error}"
+        elif active_connection:
+            self.status = f"Verbunden mit {active_connection}"
         elif not networks:
             self.status = "Keine WLAN-Netze gefunden"
         elif any(item[3] for item in networks):

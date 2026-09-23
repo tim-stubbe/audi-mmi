@@ -23,7 +23,7 @@ install -m 644 files/99-carlinkit.rules "${ROOTFS_DIR}/etc/udev/rules.d/99-carli
 install -m 644 files/boot-splash/audi-mmi.plymouth "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.plymouth"
 install -m 644 files/boot-splash/audi-mmi.script "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.script"
 install -m 644 files/boot-splash/splash.png "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/splash.png"
-printf '%s\n' 'os-2026-09-23.2' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
+printf '%s\n' 'os-2026-09-23.3' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
 
 # Keep boot messages away from the visible kiosk VT and show the branded
 # Plymouth screen until the MMI service takes over tty1.
