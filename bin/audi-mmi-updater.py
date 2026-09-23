@@ -19,6 +19,7 @@ API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 VERSION_FILE = Path("/opt/audi-mmi/VERSION")
 STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
 INSTALL_MARKER = Path("/home/mmi/.config/audi-mmi/install-update")
+BACKUP_DIR = Path("/opt/audi-mmi/backups")
 
 FILES = {
     "native-launcher/launcher.py": (Path("/opt/audi-mmi/native-launcher/launcher.py"), 0o644),
@@ -48,10 +49,19 @@ def request_json(url):
         return json.load(response)
 
 
-def download(url, target):
+def download(url, target, progress=None):
     request = urllib.request.Request(url, headers={"User-Agent": "Audi-MMI-Updater/1"})
     with urllib.request.urlopen(request, timeout=60) as response, target.open("wb") as output:
-        shutil.copyfileobj(response, output)
+        total = int(response.headers.get("Content-Length") or 0)
+        received = 0
+        while True:
+            chunk = response.read(1024 * 256)
+            if not chunk:
+                break
+            output.write(chunk)
+            received += len(chunk)
+            if progress and total:
+                progress(received, total)
 
 
 def extract_safely(archive, destination):
@@ -77,7 +87,7 @@ def verify_bundle(root):
 
 def install(root, version):
     current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else "unbekannt"
-    backup = Path("/opt/audi-mmi/backups") / current.replace("/", "-")
+    backup = BACKUP_DIR / current.replace("/", "-")
     backup.mkdir(parents=True, exist_ok=True)
 
     for relative, (target, _mode) in FILES.items():
@@ -113,13 +123,13 @@ def install(root, version):
         run("systemctl", "restart", "audi-mmi-kiosk.service", "audi-mmi-home-watcher.service", check=False)
         raise
 
-    backups = sorted((Path("/opt/audi-mmi/backups")).iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)
+    backups = sorted(BACKUP_DIR.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)
     for old in backups[3:]:
         if old.is_dir():
             shutil.rmtree(old, ignore_errors=True)
 
 
-def write_status(current, latest, available, error=None):
+def write_status(current, latest, available, error=None, state="idle", progress=0, message=""):
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     temporary = STATUS_FILE.with_suffix(".tmp")
     temporary.write_text(json.dumps({
@@ -127,6 +137,9 @@ def write_status(current, latest, available, error=None):
         "latest": latest,
         "available": bool(available),
         "error": error,
+        "state": state,
+        "progress": max(0, min(100, int(progress))),
+        "message": message,
     }), encoding="utf-8")
     os.chmod(temporary, 0o644)
     temporary.replace(STATUS_FILE)
@@ -143,7 +156,8 @@ def main():
     version = release["tag_name"]
     asset = next((item for item in release.get("assets", []) if item.get("name") == ASSET_NAME), None)
     available = version != current and asset is not None
-    write_status(current, version, available)
+    write_status(current, version, available, state="available" if available else "current",
+                 message=(f"Version {version} ist verfügbar" if available else "System ist aktuell"))
 
     if version == current:
         INSTALL_MARKER.unlink(missing_ok=True)
@@ -163,7 +177,21 @@ def main():
     with tempfile.TemporaryDirectory(prefix="audi-mmi-update-") as temp:
         temp = Path(temp)
         archive = temp / ASSET_NAME
-        download(asset["browser_download_url"], archive)
+        write_status(current, version, True, state="downloading", progress=8,
+                     message="Update wird heruntergeladen")
+
+        last_reported = [-1]
+
+        def report_download(received, total):
+            percent = 8 + int((received / total) * 47)
+            if percent != last_reported[0]:
+                last_reported[0] = percent
+                write_status(current, version, True, state="downloading", progress=percent,
+                             message="Update wird heruntergeladen")
+
+        download(asset["browser_download_url"], archive, report_download)
+        write_status(current, version, True, state="verifying", progress=60,
+                     message="Update wird geprüft")
         digest = asset.get("digest") or ""
         if digest.startswith("sha256:"):
             actual = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -173,11 +201,24 @@ def main():
         payload.mkdir()
         extract_safely(archive, payload)
         verify_bundle(payload)
+        write_status(current, version, True, state="installing", progress=78,
+                     message="Neue Version wird installiert")
         install(payload, version)
     INSTALL_MARKER.unlink(missing_ok=True)
-    write_status(version, version, False)
+    write_status(version, version, False, state="complete", progress=100,
+                 message="Update erfolgreich installiert")
     print(f"Audi MMI wurde auf {version} aktualisiert.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else ""
+        try:
+            previous = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = {}
+        write_status(current, previous.get("latest", ""), True, error=str(exc),
+                     state="error", message="Update konnte nicht installiert werden")
+        raise

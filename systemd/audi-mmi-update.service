@@ -1,10 +1,11 @@
 [Unit]
-Description=Check for a tested Audi MMI application update
+Description=Check for or install a tested Audi MMI application update
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --check
+Environment=AUDI_MMI_SKIP_KIOSK_RESTART=1
+ExecStart=/bin/sh -c 'if [ -f /home/mmi/.config/audi-mmi/install-update ]; then exec /usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --install; else exec /usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --check; fi'
 Nice=10
 IOSchedulingClass=idle

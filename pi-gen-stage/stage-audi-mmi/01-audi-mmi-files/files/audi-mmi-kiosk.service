@@ -10,6 +10,9 @@ Type=simple
 # the FastCarPlay payload before the kiosk starts. On later boots this is a
 # single executable check and performs no network or package operation.
 ExecStartPre=+/bin/sh -c 'if [ ! -x /opt/audi-mmi/fastcarplay/fastcarplay ]; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libsdl2-2.0-0 libsdl2-ttf-2.0-0 libavformat61 libavcodec61 libavutil59 libswscale8 libusb-1.0-0 libssl3t64 && AUDI_MMI_SKIP_KIOSK_RESTART=1 /usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --install; fi'
+# Limit passwordless elevation to the two service actions used by the update UI.
+# This ExecStartPre also migrates installations made from older images.
+ExecStartPre=+/bin/sh -c 'u=$$(getent passwd 1000 | cut -d: -f1); printf "%s ALL=(root) NOPASSWD: /usr/bin/systemctl restart audi-mmi-update.service, /usr/bin/systemctl restart audi-mmi-kiosk.service\n" "$$u" > /etc/sudoers.d/011-audi-mmi-update; chmod 0440 /etc/sudoers.d/011-audi-mmi-update'
 ExecStart=/opt/audi-mmi/bin/kiosk-runner.sh
 User=1000
 SupplementaryGroups=input video render plugdev

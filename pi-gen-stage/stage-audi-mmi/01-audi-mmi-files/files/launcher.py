@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.8"
+APP_VERSION = "2026.09.23.9"
 UPDATE_STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
 INSTALL_UPDATE_MARKER = Path.home() / ".config" / "audi-mmi" / "install-update"
 
@@ -877,6 +877,124 @@ class InfoView(Gtk.DrawingArea):
         return True
 
 
+class UpdateView(Gtk.DrawingArea):
+    """Full-screen, driver-visible progress while an update is installed."""
+
+    LABELS = {
+        "starting": "Installation wird vorbereitet",
+        "available": "Installation wird vorbereitet",
+        "downloading": "Update wird heruntergeladen",
+        "verifying": "Update wird geprüft",
+        "installing": "Neue Version wird installiert",
+        "complete": "Update erfolgreich installiert",
+        "current": "Das MMI ist bereits aktuell",
+        "error": "Update konnte nicht installiert werden",
+    }
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.state = "starting"
+        self.progress = 3
+        self.message = self.LABELS["starting"]
+        self.detail = "Bitte das MMI eingeschaltet lassen."
+        self.restart_scheduled = False
+        self.hitboxes = []
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+        GLib.timeout_add(350, self._poll_status)
+
+    def begin(self):
+        self.state, self.progress = "starting", 3
+        self.message = self.LABELS["starting"]
+        self.detail = "Bitte das MMI eingeschaltet lassen."
+        self.restart_scheduled = False
+        self.queue_draw()
+
+    def fail_to_start(self, detail):
+        self.state, self.progress = "error", 0
+        self.message = self.LABELS["error"]
+        self.detail = detail
+        self.queue_draw()
+
+    def _poll_status(self):
+        if self.owner.stack.get_visible_child_name() != "update":
+            return True
+        status = read_update_status()
+        state = status.get("state") or ("available" if status.get("available") else "current")
+        if state in self.LABELS:
+            self.state = state
+            self.progress = int(status.get("progress") or (100 if state == "complete" else self.progress))
+            self.message = status.get("message") or self.LABELS[state]
+            if state == "error":
+                self.detail = status.get("error") or "Bitte erneut versuchen."
+            elif state in ("complete", "current"):
+                self.progress = 100
+                self.detail = "Das MMI wird jetzt mit der neuen Version neu geladen."
+                if not self.restart_scheduled:
+                    self.restart_scheduled = True
+                    GLib.timeout_add(1600, self._restart_kiosk)
+            else:
+                self.detail = "Bitte das MMI eingeschaltet lassen."
+        self.queue_draw()
+        return True
+
+    def _restart_kiosk(self):
+        subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "restart", "audi-mmi-kiosk.service"])
+        return False
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save(); cr.scale(w / 1600.0, h / 720.0)
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
+        cr.set_source_rgba(.008, .008, .015, .78); cr.rectangle(0, 0, 1600, 720); cr.fill()
+        self.hitboxes = []
+        _text(cr, "Software-Update", 800, 178, 38, (1, 1, 1), True, "center")
+        _text(cr, self.message, 800, 257, 25, (.92, .92, .94), True, "center")
+
+        _rounded_rect(cr, 310, 320, 980, 30, 15); _set_rgba(cr, (.16, .16, .19), .98); cr.fill()
+        fill = max(10, 980 * max(0, min(100, self.progress)) / 100)
+        _rounded_rect(cr, 310, 320, fill, 30, 15)
+        _set_rgba(cr, (.88, .075, .15) if self.state != "error" else (.72, .16, .12), .98); cr.fill()
+        _text(cr, f"{max(0, min(100, self.progress))} %", 800, 405, 24, (1, 1, 1), True, "center")
+        _text(cr, self.detail[:100], 800, 455, 17, (.72, .72, .76), False, "center")
+
+        if self.state == "error":
+            retry = (610, 520, 380, 66)
+            _rounded_rect(cr, *retry, 29); _set_rgba(cr, (.86, .08, .15), .98); cr.fill()
+            _text(cr, "ERNEUT VERSUCHEN", 800, 562, 17, (1, 1, 1), True, "center")
+            self.hitboxes.append(("retry", *retry))
+            back = (650, 606, 300, 54)
+            _rounded_rect(cr, *back, 25); _set_rgba(cr, (.13, .13, .15), .98); cr.fill()
+            _text(cr, "ZURÜCK", 800, 641, 15, (.9, .9, .92), True, "center")
+            self.hitboxes.append(("back", *back))
+        cr.restore()
+        return False
+
+    def _release(self, _widget, event):
+        self.owner.touch_feedback()
+        sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
+        x, y = event.x * sx, event.y * sy
+        for ident, bx, by, bw, bh in self.hitboxes:
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                if ident == "retry": self.owner.start_update_installation()
+                elif ident == "back": self.owner.on_open_info()
+                break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+
 class VehicleSettingsView(Gtk.DrawingArea):
     """Modern replacement for the vehicle pages of the original Audi MMI.
 
@@ -1270,12 +1388,14 @@ class Launcher(Gtk.Window):
         self.settings_view = SettingsView(self, self.settings_store)
         self.wifi_setup_view = WifiSetupView(self)
         self.info_view = InfoView(self)
+        self.update_view = UpdateView(self)
         self.vehicle_settings_view = VehicleSettingsView(self)
         self.navigation_view = NavigationView(self)
         self.stack.add_named(self.carousel, "home")
         self.stack.add_named(self.settings_view, "settings")
         self.stack.add_named(self.wifi_setup_view, "wifi")
         self.stack.add_named(self.info_view, "info")
+        self.stack.add_named(self.update_view, "update")
         self.stack.add_named(self.vehicle_settings_view, "vehicle")
         self.stack.add_named(self.navigation_view, "navigation")
         self.add(self.stack)
@@ -1510,7 +1630,7 @@ class Launcher(Gtk.Window):
         self.stack.set_transition_duration(220 if animations else 0)
         for view in (
             self.carousel, self.settings_view, self.wifi_setup_view,
-            self.info_view, self.vehicle_settings_view, self.navigation_view,
+            self.info_view, self.update_view, self.vehicle_settings_view, self.navigation_view,
         ):
             view.queue_draw()
 
@@ -1591,12 +1711,28 @@ class Launcher(Gtk.Window):
         dialog.destroy()
         if response != Gtk.ResponseType.OK:
             return
+        self.start_update_installation()
+
+    def start_update_installation(self):
+        self.update_view.begin()
+        self.stack.set_visible_child_name("update")
         try:
             INSTALL_UPDATE_MARKER.parent.mkdir(parents=True, exist_ok=True)
             INSTALL_UPDATE_MARKER.write_text("install\n", encoding="utf-8")
-            subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "reboot"])
         except OSError as exc:
-            self.show_info("Update", f"Installation konnte nicht vorbereitet werden: {exc}")
+            self.update_view.fail_to_start(f"Installation konnte nicht vorbereitet werden: {exc}")
+            return
+
+        def launch():
+            result = subprocess.run(
+                ["sudo", "-n", "/usr/bin/systemctl", "restart", "audi-mmi-update.service"],
+                text=True, capture_output=True,
+            )
+            if result.returncode:
+                detail = result.stderr.strip() or "Installationsdienst konnte nicht gestartet werden."
+                GLib.idle_add(self.update_view.fail_to_start, detail)
+
+        threading.Thread(target=launch, daemon=True).start()
 
     def on_shutdown(self, *_args):
         dialog = Gtk.MessageDialog(
