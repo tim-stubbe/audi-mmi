@@ -59,15 +59,15 @@ siehe Releases dieses Repos.
   (cage kann pro Sitzung nur eine App zeigen - Wechsel = cage neu starten)
 - `audi-mmi-home-watcher.service`: liest Touch-Events direkt vom Kernel,
   Long-Press oben links killt den laufenden `cage`-Prozess -> zurück zum Launcher
-- `audi-mmi-firstboot.service`: findet beim ersten Boot heraus, welcher
-  Benutzername tatsächlich angelegt wurde (Raspberry Pi Imager legt den erst
-  beim Flashen fest) und vergibt darauf passwortloses sudo + Gruppenrechte
+- Ein festes, gesperrtes Laufzeitkonto startet den Kiosk automatisch. Beim
+  ersten Boot erscheinen keine Benutzer- oder Passwortdialoge.
 
-## Benutzername/WLAN/Passwort
+## WLAN
 
-Werden weiterhin ganz normal über Raspberry Pi Imager ("Erweiterte Optionen"
-bzw. Zahnrad-Symbol) beim Flashen gesetzt, wie bei jedem Standard-Image auch.
-Das Image selbst enthält keine Zugangsdaten.
+WLAN wird nach dem ersten Start direkt über **Einstellungen → Verbindungen**
+eingerichtet. Die Seite zeigt erreichbare Netze und enthält eine eigene
+Bildschirmtastatur. Raspberry Pi Imager muss keine Benutzer-, Passwort- oder
+WLAN-Daten mehr in das Image schreiben.
 
 ## Vorschau ohne Flashen
 

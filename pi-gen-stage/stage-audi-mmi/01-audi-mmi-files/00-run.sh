@@ -11,16 +11,28 @@ install -m 644 files/launcher.py "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/lau
 install -m 644 files/assets/alps-background.png "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/assets/alps-background.png"
 install -m 755 files/kiosk-runner.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/kiosk-runner.sh"
 install -m 755 files/touch-home-watcher.py "${ROOTFS_DIR}/opt/audi-mmi/bin/touch-home-watcher.py"
-install -m 755 files/audi-mmi-firstboot.sh "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-firstboot.sh"
 install -m 755 files/audi-mmi-updater.py "${ROOTFS_DIR}/opt/audi-mmi/bin/audi-mmi-updater.py"
 
 install -m 644 files/audi-mmi-kiosk.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-kiosk.service"
 install -m 644 files/audi-mmi-home-watcher.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-home-watcher.service"
-install -m 644 files/audi-mmi-firstboot.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-firstboot.service"
 install -m 644 files/audi-mmi-update.service "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-update.service"
 install -m 644 files/audi-mmi-update.timer "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-update.timer"
 
 install -m 644 files/99-carlinkit.rules "${ROOTFS_DIR}/etc/udev/rules.d/99-carlinkit.rules"
+printf '%s\n' 'os-2026-09-23' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
+
+# The appliance has a fixed, locked runtime account. It never asks for a
+# username or password on first boot. Only the two commands used by the touch
+# UI are available without a password.
+on_chroot << EOF
+usermod -aG input,video,render,plugdev,netdev "${FIRST_USER_NAME}"
+passwd -l "${FIRST_USER_NAME}"
+cat > /etc/sudoers.d/010-audi-mmi-ui <<'SUDOERS'
+${FIRST_USER_NAME} ALL=(root) NOPASSWD: /usr/bin/nmcli, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
+SUDOERS
+chmod 0440 /etc/sudoers.d/010-audi-mmi-ui
+visudo -cf /etc/sudoers.d/010-audi-mmi-ui
+EOF
 
 # react-carplay AppImage is fetched here (on the build machine, which has
 # internet) and baked directly into the image, so the finished Pi is fully
@@ -38,7 +50,7 @@ on_chroot << EOF
 systemctl enable seatd.service
 systemctl enable audi-mmi-kiosk.service
 systemctl enable audi-mmi-home-watcher.service
-systemctl enable audi-mmi-firstboot.service
+systemctl disable audi-mmi-firstboot.service || true
 systemctl enable audi-mmi-update.timer
 systemctl disable bluetooth.service || true
 EOF

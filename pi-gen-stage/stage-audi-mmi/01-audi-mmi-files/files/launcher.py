@@ -11,6 +11,7 @@ react-carplay when it is actually running.
 import os
 import json
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -135,6 +136,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
+APP_VERSION = "2026.09.23"
 
 CSS = b"""
 window { background-color: #070708; }
@@ -208,6 +210,16 @@ def read_outside_temperature_c():
         except (OSError, ValueError):
             pass
     return None
+
+
+def read_mmi_version():
+    try:
+        version = Path("/opt/audi-mmi/VERSION").read_text(encoding="utf-8").strip()
+        if version:
+            return version
+    except OSError:
+        pass
+    return APP_VERSION
 
 
 def _set_rgba(cr, rgb, alpha=1.0):
@@ -386,10 +398,10 @@ class SettingsView(Gtk.DrawingArea):
             ("animations", "Animationen", "Ein" if d["animations"] else "Aus", (.70,.34,.08)),
             ("touch_sounds", "Tastentöne", "Ein" if d["touch_sounds"] else "Aus", (.45,.25,.18)),
             ("background_strength", "Alpen-Hintergrund", f"{d['background_strength']} %", (.36,.38,.42)),
-            ("network", "Verbindungen", "WLAN · Bluetooth", (.08,.37,.62)),
+            ("network", "Verbindungen", "WLAN einrichten", (.08,.37,.62)),
             ("carplay", "Apple CarPlay", "Dongle- und Audiostatus", (.08,.48,.27)),
             ("vehicle", "Fahrzeug & CAN", "Hardware noch nicht verbunden", (.68,.06,.12)),
-            ("system", "System", "Temperatur · Speicher · Updates", (.28,.30,.34)),
+            ("system", "Info", f"Version {read_mmi_version()}", (.28,.30,.34)),
         ]
         for i, (ident, label, value, accent) in enumerate(cards):
             col, row = i % 4, i // 4
@@ -421,8 +433,14 @@ class SettingsView(Gtk.DrawingArea):
         elif ident == "vehicle":
             self.owner.on_open_vehicle()
             return
-        elif ident in ("network", "carplay", "system"):
-            self.owner.show_info({"network":"Verbindungen", "carplay":"Apple CarPlay", "vehicle":"Fahrzeug & CAN", "system":"System"}[ident],
+        elif ident == "network":
+            self.owner.on_open_wifi()
+            return
+        elif ident == "system":
+            self.owner.on_open_info()
+            return
+        elif ident == "carplay":
+            self.owner.show_info({"carplay":"Apple CarPlay"}[ident],
                                  "Die Detailseite ist vorbereitet. Fahrzeugwerte werden freigeschaltet, sobald der CAN-Adapter angeschlossen und geprüft ist.")
         self.queue_draw()
 
@@ -437,6 +455,311 @@ class SettingsView(Gtk.DrawingArea):
     def _touch(self, _widget, event):
         if event.type == Gdk.EventType.TOUCH_END:
             return self._release(_widget, event)
+        return True
+
+
+class WifiSetupView(Gtk.DrawingArea):
+    """Touch-only Wi-Fi setup backed by NetworkManager/nmcli."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.hitboxes = []
+        self.networks = []
+        self.status = "Netze werden gesucht …"
+        self.selected_ssid = None
+        self.password = ""
+        self.uppercase = False
+        self.busy = False
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def refresh(self):
+        if self.busy:
+            return
+        self.busy = True
+        self.status = "WLAN wird eingeschaltet und Netze werden gesucht …"
+        self.queue_draw()
+        threading.Thread(target=self._scan_worker, daemon=True).start()
+
+    def _scan_worker(self):
+        networks, error = [], None
+        try:
+            subprocess.run(["sudo", "-n", "nmcli", "radio", "wifi", "on"],
+                           check=True, text=True, capture_output=True, timeout=12)
+            result = subprocess.run(
+                ["sudo", "-n", "nmcli", "--terse", "--escape", "no",
+                 "--separator", "\t", "--fields", "IN-USE,SSID,SIGNAL,SECURITY",
+                 "device", "wifi", "list", "--rescan", "yes"],
+                check=True, text=True, capture_output=True, timeout=25,
+            )
+            seen = set()
+            for line in result.stdout.splitlines():
+                fields = line.split("\t", 3)
+                if len(fields) != 4:
+                    continue
+                active, ssid, signal, security = fields
+                if not ssid or ssid in seen:
+                    continue
+                seen.add(ssid)
+                try:
+                    strength = int(signal)
+                except ValueError:
+                    strength = 0
+                networks.append((ssid, strength, security, active == "*"))
+            networks.sort(key=lambda item: (not item[3], -item[1], item[0].lower()))
+        except (OSError, subprocess.SubprocessError) as exc:
+            error = str(exc)
+        GLib.idle_add(self._finish_scan, networks[:7], error)
+
+    def _finish_scan(self, networks, error):
+        self.networks = networks
+        self.busy = False
+        if error:
+            self.status = "WLAN konnte nicht gestartet werden"
+        elif not networks:
+            self.status = "Keine WLAN-Netze gefunden"
+        elif any(item[3] for item in networks):
+            active = next(item[0] for item in networks if item[3])
+            self.status = f"Verbunden mit {active}"
+        else:
+            self.status = "Netz auswählen"
+        self.queue_draw()
+        return False
+
+    def _connect(self):
+        if not self.selected_ssid or self.busy:
+            return
+        ssid, password = self.selected_ssid, self.password
+        self.busy = True
+        self.status = f"Verbindung mit {ssid} wird hergestellt …"
+        self.queue_draw()
+        threading.Thread(target=self._connect_worker, args=(ssid, password), daemon=True).start()
+
+    def _connect_worker(self, ssid, password):
+        command = ["sudo", "-n", "nmcli", "device", "wifi", "connect", ssid,
+                   "ifname", "wlan0"]
+        if password:
+            command[7:7] = ["password", password]
+        error = None
+        try:
+            subprocess.run(command, check=True, text=True, capture_output=True, timeout=35)
+        except subprocess.CalledProcessError as exc:
+            error = (exc.stderr or exc.stdout or "Verbindung fehlgeschlagen").strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            error = str(exc)
+        GLib.idle_add(self._finish_connect, ssid, error)
+
+    def _finish_connect(self, ssid, error):
+        self.busy = False
+        if error:
+            self.status = "Verbindung fehlgeschlagen – Passwort prüfen"
+        else:
+            self.status = f"Verbunden mit {ssid}"
+            self.selected_ssid = None
+            self.password = ""
+        self.queue_draw()
+        if not error:
+            GLib.timeout_add_seconds(2, self._refresh_after_connect)
+        return False
+
+    def _refresh_after_connect(self):
+        self.refresh()
+        return False
+
+    def _key(self, cr, ident, label, box, primary=False):
+        x, y, w, h = box
+        _rounded_rect(cr, x, y, w, h, 13)
+        _set_rgba(cr, (.88, .09, .16) if primary else (.10, .105, .125), .97)
+        cr.fill_preserve()
+        _set_rgba(cr, (.52, .53, .58), .8); cr.set_line_width(1.2); cr.stroke()
+        _text(cr, label, x + w / 2, y + h / 2 + 8, 20 if len(label) <= 2 else 15,
+              (1, 1, 1), True, "center")
+        self.hitboxes.append((ident, x, y, w, h))
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save(); cr.scale(w / 1600.0, h / 720.0)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0); cr.paint()
+        else:
+            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        cr.set_source_rgba(.01, .01, .02, .58); cr.rectangle(0, 0, 1600, 720); cr.fill()
+        self.hitboxes = []
+
+        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10, .10, .12), .94); cr.fill()
+        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
+        self.hitboxes.append(("back", 34, 22, 116, 46))
+        _text(cr, "WLAN", 190, 56, 31, (1, 1, 1), True)
+        _text(cr, self.status, 190, 82, 15, (.72, .72, .76))
+
+        if self.selected_ssid is None:
+            _rounded_rect(cr, 1340, 24, 212, 48, 24); _set_rgba(cr, (.11, .12, .14), .96); cr.fill()
+            _text(cr, "NEU SUCHEN", 1446, 55, 14, (1, 1, 1), True, "center")
+            self.hitboxes.append(("refresh", 1340, 24, 212, 48))
+            if not self.networks:
+                _text(cr, "Suche läuft …" if self.busy else "Keine Netze gefunden",
+                      800, 355, 25, (.82, .82, .85), True, "center")
+            for i, (ssid, signal, security, active) in enumerate(self.networks):
+                y = 111 + i * 78
+                _rounded_rect(cr, 110, y, 1380, 64, 16)
+                _set_rgba(cr, (.045, .05, .06), .94); cr.fill_preserve()
+                _set_rgba(cr, (.20, .55, .33) if active else (.31, .32, .36), .92)
+                cr.set_line_width(2 if active else 1.2); cr.stroke()
+                _text(cr, ssid, 142, y + 39, 21, (1, 1, 1), True)
+                lock = "Gesichert" if security and security != "--" else "Offen"
+                _text(cr, f"{lock} · {signal} %", 1390, y + 39, 15,
+                      (.45, .85, .57) if active else (.68, .69, .73), False, "right")
+                _text(cr, "✓" if active else "›", 1452, y + 42, 25,
+                      (.45, .85, .57) if active else (.80, .81, .84), True, "center")
+                self.hitboxes.append((f"network:{i}", 110, y, 1380, 64))
+        else:
+            _text(cr, self.selected_ssid, 800, 126, 25, (1, 1, 1), True, "center")
+            _rounded_rect(cr, 300, 145, 1000, 55, 15); _set_rgba(cr, (.04, .045, .055), .96); cr.fill_preserve()
+            _set_rgba(cr, (.48, .49, .54), .9); cr.set_line_width(1.5); cr.stroke()
+            display_password = "•" * len(self.password) if self.password else "WLAN-Passwort"
+            _text(cr, display_password, 800, 180, 20,
+                  (1, 1, 1) if self.password else (.55, .56, .60), False, "center")
+
+            rows = ["1234567890", "QWERTZUIOP", "ASDFGHJKL", "YXCVBNM"]
+            for row_index, chars in enumerate(rows):
+                key_w, gap = 92, 10
+                total = len(chars) * key_w + (len(chars) - 1) * gap
+                start_x = 800 - total / 2
+                y = 220 + row_index * 78
+                for col, char in enumerate(chars):
+                    shown = char if self.uppercase or row_index == 0 else char.lower()
+                    self._key(cr, f"char:{shown}", shown,
+                              (start_x + col * (key_w + gap), y, key_w, 62))
+            self._key(cr, "shift", "ABC" if not self.uppercase else "abc", (225, 538, 145, 62))
+            self._key(cr, "char:-", "-", (382, 538, 82, 62))
+            self._key(cr, "char:_", "_", (476, 538, 82, 62))
+            self._key(cr, "char:@", "@", (570, 538, 82, 62))
+            self._key(cr, "char:.", ".", (664, 538, 82, 62))
+            self._key(cr, "space", "LEER", (758, 538, 280, 62))
+            self._key(cr, "backspace", "⌫", (1050, 538, 120, 62))
+            self._key(cr, "connect", "VERBINDEN", (1182, 538, 193, 62), True)
+            _text(cr, "Abbrechen", 800, 648, 16, (.80, .81, .84), True, "center")
+            self.hitboxes.append(("cancel", 690, 616, 220, 48))
+        cr.restore(); return False
+
+    def _activate(self, ident):
+        if ident == "back":
+            if self.selected_ssid is not None:
+                self.selected_ssid, self.password = None, ""
+                self.queue_draw()
+            else:
+                self.owner.on_open_settings()
+        elif ident == "refresh":
+            self.refresh()
+        elif ident.startswith("network:"):
+            index = int(ident.split(":", 1)[1])
+            ssid, _signal, security, active = self.networks[index]
+            if active:
+                self.status = f"Bereits mit {ssid} verbunden"
+                self.queue_draw()
+            elif not security or security == "--":
+                self.selected_ssid, self.password = ssid, ""
+                self._connect()
+            else:
+                self.selected_ssid, self.password = ssid, ""
+                self.queue_draw()
+        elif ident.startswith("char:"):
+            if len(self.password) < 63:
+                self.password += ident.split(":", 1)[1]
+                self.queue_draw()
+        elif ident == "space":
+            if len(self.password) < 63:
+                self.password += " "; self.queue_draw()
+        elif ident == "backspace":
+            self.password = self.password[:-1]; self.queue_draw()
+        elif ident == "shift":
+            self.uppercase = not self.uppercase; self.queue_draw()
+        elif ident == "cancel":
+            self.selected_ssid, self.password = None, ""; self.queue_draw()
+        elif ident == "connect":
+            self._connect()
+
+    def _release(self, _widget, event):
+        sx, sy = 1600 / self.get_allocated_width(), 720 / self.get_allocated_height()
+        x, y = event.x * sx, event.y * sy
+        for ident, bx, by, bw, bh in self.hitboxes:
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self._activate(ident); break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget, event)
+        return True
+
+
+class InfoView(Gtk.DrawingArea):
+    """Local system information, including the installed MMI version."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self.hitboxes = []
+        bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
+        try:
+            self.background = cairo.ImageSurface.create_from_png(str(bg_path))
+        except (OSError, cairo.Error):
+            self.background = None
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.TOUCH_MASK)
+        self.connect("draw", self._draw)
+        self.connect("button-release-event", self._release)
+        self.connect("touch-event", self._touch)
+
+    def _draw(self, _widget, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.save(); cr.scale(w / 1600.0, h / 720.0)
+        if self.background:
+            cr.set_source_surface(self.background, 0, 0); cr.paint()
+        else:
+            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        cr.set_source_rgba(.01, .01,.02,.56); cr.rectangle(0,0,1600,720); cr.fill()
+        self.hitboxes = []
+        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10,.10,.12),.94); cr.fill()
+        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1,1,1), True, "center")
+        self.hitboxes.append(("back",34,22,116,46))
+        _text(cr, "Info",190,56,31,(1,1,1),True)
+        _text(cr,"Audi MMI · Systeminformationen",190,81,15,(.70,.70,.74))
+        values = [
+            ("MMI-Version", read_mmi_version()),
+            ("System", "Audi MMI OS · 64 Bit"),
+            ("Display", "1600 × 720 · Touch"),
+            ("CarPlay", "react-carplay 4.0.5"),
+            ("Updates", "Über iPhone-Hotspot"),
+            ("Fahrzeugzugriff", "CAN noch nicht eingerichtet"),
+        ]
+        for i,(label,value) in enumerate(values):
+            col,row=i%2,i//2; x,y=100+col*755,132+row*158
+            _rounded_rect(cr,x,y,700,126,18); _set_rgba(cr,(.045,.048,.058),.94); cr.fill_preserve()
+            _set_rgba(cr,(.31,.32,.36),.92); cr.set_line_width(1.5); cr.stroke()
+            _text(cr,label,x+28,y+38,15,(.68,.69,.73),True)
+            _text(cr,value,x+28,y+83,24,(1,1,1),True)
+        cr.restore(); return False
+
+    def _release(self, _widget, event):
+        sx,sy=1600/self.get_allocated_width(),720/self.get_allocated_height()
+        x,y=event.x*sx,event.y*sy
+        for ident,bx,by,bw,bh in self.hitboxes:
+            if bx<=x<=bx+bw and by<=y<=by+bh:
+                if ident=="back": self.owner.on_open_settings()
+                break
+        return True
+
+    def _touch(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_END:
+            return self._release(_widget,event)
         return True
 
 
@@ -782,10 +1105,14 @@ class Launcher(Gtk.Window):
         self.stack.set_transition_duration(220)
         self.carousel = CarouselView(self)
         self.settings_view = SettingsView(self, self.settings_store)
+        self.wifi_setup_view = WifiSetupView(self)
+        self.info_view = InfoView(self)
         self.vehicle_settings_view = VehicleSettingsView(self)
         self.navigation_view = NavigationView(self)
         self.stack.add_named(self.carousel, "home")
         self.stack.add_named(self.settings_view, "settings")
+        self.stack.add_named(self.wifi_setup_view, "wifi")
+        self.stack.add_named(self.info_view, "info")
         self.stack.add_named(self.vehicle_settings_view, "vehicle")
         self.stack.add_named(self.navigation_view, "navigation")
         self.add(self.stack)
@@ -997,6 +1324,14 @@ class Launcher(Gtk.Window):
     def on_open_vehicle(self, *_args):
         self.vehicle_settings_view.queue_draw()
         self.stack.set_visible_child_name("vehicle")
+
+    def on_open_wifi(self, *_args):
+        self.stack.set_visible_child_name("wifi")
+        self.wifi_setup_view.refresh()
+
+    def on_open_info(self, *_args):
+        self.info_view.queue_draw()
+        self.stack.set_visible_child_name("info")
 
     def on_open_settings(self, *_args):
         self.settings_view.queue_draw()

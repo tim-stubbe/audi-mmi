@@ -14,9 +14,9 @@ und eines Carlinkit CPC200-CCPA/CCPM CarPlay-Dongles.
 ## Installation
 
 Fertiges Image unter den [Releases](../../releases) dieses Repos, mit
-Raspberry Pi Imager als "Custom Image" flashen. Benutzername/WLAN/Passwort
-wie gewohnt über die Imager-Erweiterten-Optionen setzen - das Image selbst
-enthält keine Zugangsdaten. Details zum Eigenbau des Images:
+Raspberry Pi Imager als "Custom Image" flashen. Der Kiosk startet ohne
+Benutzer- oder Passwortdialog. WLAN wird anschließend direkt über
+**Einstellungen → Verbindungen** eingerichtet. Details zum Eigenbau des Images:
 `docs/os-image-build.md`.
 
 ## Architektur
