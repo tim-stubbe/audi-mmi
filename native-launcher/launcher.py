@@ -136,7 +136,27 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23"
+APP_VERSION = "2026.09.23.1"
+
+
+def _split_nmcli_terse(line):
+    """Split nmcli's colon separated terse output, honouring backslash escapes."""
+    fields, current, escaped = [], [], False
+    for char in line:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == ":":
+            fields.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    if escaped:
+        current.append("\\")
+    fields.append("".join(current))
+    return fields
 
 CSS = b"""
 window { background-color: #070708; }
@@ -304,6 +324,28 @@ def _paint_icon(cr, name, cx, cy, s, color=(0.97, 0.97, 0.98)):
         cr.arc(cx, cy, s*.34, 0, math.tau); cr.stroke()
 
 
+def _paint_page_background(cr, surface, strength):
+    """Paint the shared background with the user-selected image strength."""
+    cr.set_source_rgb(.008, .008, .012)
+    cr.paint()
+    if surface:
+        cr.set_source_surface(surface, 0, 0)
+        cr.paint_with_alpha(max(0.0, min(1.0, float(strength) / 100.0)))
+
+
+def _draw_back_button(cr):
+    """Draw one consistent, generous touch target and return its hitbox."""
+    box = (28, 16, 174, 64)
+    _rounded_rect(cr, *box, 28)
+    _set_rgba(cr, (.10, .10, .12), .96)
+    cr.fill_preserve()
+    _set_rgba(cr, (.38, .39, .43), .86)
+    cr.set_line_width(1.4)
+    cr.stroke()
+    _text(cr, "‹  ZURÜCK", 115, 57, 17, (1, 1, 1), True, "center")
+    return box
+
+
 class SettingsStore:
     """Small, durable settings file used by the launcher and future services."""
 
@@ -374,19 +416,14 @@ class SettingsView(Gtk.DrawingArea):
     def _draw(self, _widget, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         cr.save(); cr.scale(w/1600.0, h/720.0)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0); cr.paint()
-        else:
-            cr.set_source_rgb(.02,.02,.03); cr.paint()
+        _paint_page_background(cr, self.background, self.store.data["background_strength"])
         # Keep the same Alpine identity on every page while preserving enough
         # contrast for controls and small status text.
         cr.set_source_rgba(.01,.01,.02,.48); cr.rectangle(0,0,1600,720); cr.fill()
         self.hitboxes = []
-        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10,.10,.12), .94); cr.fill()
-        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1,1,1), True, "center")
-        self.hitboxes.append(("back", 34, 22, 116, 46))
-        _text(cr, "Einstellungen", 190, 56, 31, (1,1,1), True)
-        _text(cr, "Display · Audio · CarPlay · Fahrzeug", 190, 81, 15, (.7,.7,.74))
+        self.hitboxes.append(("back", *_draw_back_button(cr)))
+        _text(cr, "Einstellungen", 232, 56, 31, (1,1,1), True)
+        _text(cr, "Display · Audio · CarPlay · Fahrzeug", 232, 81, 15, (.7,.7,.74))
 
         d = self.store.data
         cards = [
@@ -442,6 +479,7 @@ class SettingsView(Gtk.DrawingArea):
         elif ident == "carplay":
             self.owner.show_info({"carplay":"Apple CarPlay"}[ident],
                                  "Die Detailseite ist vorbereitet. Fahrzeugwerte werden freigeschaltet, sobald der CAN-Adapter angeschlossen und geprüft ist.")
+        self.owner.apply_visual_settings()
         self.queue_draw()
 
     def _release(self, _widget, event):
@@ -492,17 +530,18 @@ class WifiSetupView(Gtk.DrawingArea):
     def _scan_worker(self):
         networks, error = [], None
         try:
-            subprocess.run(["sudo", "-n", "nmcli", "radio", "wifi", "on"],
+            env = dict(os.environ, LC_ALL="C", LANG="C")
+            subprocess.run(["sudo", "-n", "/usr/bin/nmcli", "radio", "wifi", "on"],
                            check=True, text=True, capture_output=True, timeout=12)
             result = subprocess.run(
-                ["sudo", "-n", "nmcli", "--terse", "--escape", "no",
-                 "--separator", "\t", "--fields", "IN-USE,SSID,SIGNAL,SECURITY",
+                ["sudo", "-n", "/usr/bin/nmcli", "--terse", "--escape", "yes",
+                 "--fields", "IN-USE,SSID,SIGNAL,SECURITY",
                  "device", "wifi", "list", "--rescan", "yes"],
-                check=True, text=True, capture_output=True, timeout=25,
+                check=True, text=True, capture_output=True, timeout=25, env=env,
             )
             seen = set()
             for line in result.stdout.splitlines():
-                fields = line.split("\t", 3)
+                fields = _split_nmcli_terse(line)
                 if len(fields) != 4:
                     continue
                 active, ssid, signal, security = fields
@@ -515,6 +554,8 @@ class WifiSetupView(Gtk.DrawingArea):
                     strength = 0
                 networks.append((ssid, strength, security, active == "*"))
             networks.sort(key=lambda item: (not item[3], -item[1], item[0].lower()))
+        except subprocess.CalledProcessError as exc:
+            error = (exc.stderr or exc.stdout or str(exc)).strip()
         except (OSError, subprocess.SubprocessError) as exc:
             error = str(exc)
         GLib.idle_add(self._finish_scan, networks[:7], error)
@@ -523,7 +564,8 @@ class WifiSetupView(Gtk.DrawingArea):
         self.networks = networks
         self.busy = False
         if error:
-            self.status = "WLAN konnte nicht gestartet werden"
+            short_error = error.replace("\n", " ")[:90]
+            self.status = f"WLAN-Fehler: {short_error}"
         elif not networks:
             self.status = "Keine WLAN-Netze gefunden"
         elif any(item[3] for item in networks):
@@ -544,7 +586,7 @@ class WifiSetupView(Gtk.DrawingArea):
         threading.Thread(target=self._connect_worker, args=(ssid, password), daemon=True).start()
 
     def _connect_worker(self, ssid, password):
-        command = ["sudo", "-n", "nmcli", "device", "wifi", "connect", ssid,
+        command = ["sudo", "-n", "/usr/bin/nmcli", "device", "wifi", "connect", ssid,
                    "ifname", "wlan0"]
         if password:
             command[7:7] = ["password", password]
@@ -587,18 +629,13 @@ class WifiSetupView(Gtk.DrawingArea):
     def _draw(self, _widget, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         cr.save(); cr.scale(w / 1600.0, h / 720.0)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0); cr.paint()
-        else:
-            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
         cr.set_source_rgba(.01, .01, .02, .58); cr.rectangle(0, 0, 1600, 720); cr.fill()
         self.hitboxes = []
 
-        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10, .10, .12), .94); cr.fill()
-        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
-        self.hitboxes.append(("back", 34, 22, 116, 46))
-        _text(cr, "WLAN", 190, 56, 31, (1, 1, 1), True)
-        _text(cr, self.status, 190, 82, 15, (.72, .72, .76))
+        self.hitboxes.append(("back", *_draw_back_button(cr)))
+        _text(cr, "WLAN", 232, 56, 31, (1, 1, 1), True)
+        _text(cr, self.status, 232, 82, 15, (.72, .72, .76))
 
         if self.selected_ssid is None:
             _rounded_rect(cr, 1340, 24, 212, 48, 24); _set_rgba(cr, (.11, .12, .14), .96); cr.fill()
@@ -721,17 +758,12 @@ class InfoView(Gtk.DrawingArea):
     def _draw(self, _widget, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         cr.save(); cr.scale(w / 1600.0, h / 720.0)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0); cr.paint()
-        else:
-            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
         cr.set_source_rgba(.01, .01,.02,.56); cr.rectangle(0,0,1600,720); cr.fill()
         self.hitboxes = []
-        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10,.10,.12),.94); cr.fill()
-        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1,1,1), True, "center")
-        self.hitboxes.append(("back",34,22,116,46))
-        _text(cr, "Info",190,56,31,(1,1,1),True)
-        _text(cr,"Audi MMI · Systeminformationen",190,81,15,(.70,.70,.74))
+        self.hitboxes.append(("back", *_draw_back_button(cr)))
+        _text(cr, "Info",232,56,31,(1,1,1),True)
+        _text(cr,"Audi MMI · Systeminformationen",232,81,15,(.70,.70,.74))
         values = [
             ("MMI-Version", read_mmi_version()),
             ("System", "Audi MMI OS · 64 Bit"),
@@ -823,18 +855,13 @@ class VehicleSettingsView(Gtk.DrawingArea):
     def _draw(self, _widget, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         cr.save(); cr.scale(w / 1600.0, h / 720.0)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0); cr.paint()
-        else:
-            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
         cr.set_source_rgba(.01, .01, .02, .52); cr.rectangle(0, 0, 1600, 720); cr.fill()
 
         self.hitboxes = []
-        _rounded_rect(cr, 34, 22, 116, 46, 23); _set_rgba(cr, (.10, .10, .12), .94); cr.fill()
-        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
-        self.hitboxes.append(("back", 34, 22, 116, 46))
-        _text(cr, "Fahrzeug", 190, 56, 31, (1, 1, 1), True)
-        _text(cr, "Komfort · Wartung · Fahrzeugdaten", 190, 81, 15, (.70, .70, .74))
+        self.hitboxes.append(("back", *_draw_back_button(cr)))
+        _text(cr, "Fahrzeug", 232, 56, 31, (1, 1, 1), True)
+        _text(cr, "Komfort · Wartung · Fahrzeugdaten", 232, 81, 15, (.70, .70, .74))
 
         _rounded_rect(cr, 1162, 24, 390, 52, 26)
         _set_rgba(cr, (.08, .08, .10), .94); cr.fill_preserve()
@@ -917,24 +944,15 @@ class NavigationView(Gtk.DrawingArea):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         cr.save()
         cr.scale(w / 1600.0, h / 720.0)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0)
-            cr.paint()
-        else:
-            cr.set_source_rgb(.02, .02, .03)
-            cr.paint()
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
         cr.set_source_rgba(.01, .01, .02, .48)
         cr.rectangle(0, 0, 1600, 720)
         cr.fill()
 
         self.hitboxes = []
-        _rounded_rect(cr, 34, 22, 116, 46, 23)
-        _set_rgba(cr, (.10, .10, .12), .94)
-        cr.fill()
-        _text(cr, "‹  ZURÜCK", 92, 52, 14, (1, 1, 1), True, "center")
-        self.hitboxes.append(("back", 34, 22, 116, 46))
-        _text(cr, "Navigation", 190, 56, 31, (1, 1, 1), True)
-        _text(cr, "Karte · Routen · Ziele", 190, 81, 15, (.7, .7, .74))
+        self.hitboxes.append(("back", *_draw_back_button(cr)))
+        _text(cr, "Navigation", 232, 56, 31, (1, 1, 1), True)
+        _text(cr, "Karte · Routen · Ziele", 232, 81, 15, (.7, .7, .74))
 
         self._card(
             cr, "kies_drive", (82, 128, 1436, 224), "Kies Drive",
@@ -982,6 +1000,9 @@ class CarouselView(Gtk.DrawingArea):
         self.owner = owner
         self.selected = 0
         self.press_x = None
+        self.animation_direction = 0
+        self.animation_started = 0.0
+        self.animation_progress = 0.0
         self.connected = False
         self.outside_temp = None
         self.items = [
@@ -1019,15 +1040,39 @@ class CarouselView(Gtk.DrawingArea):
         dx = event.x - self.press_x
         self.press_x = None
         if abs(dx) > 75:
-            self.selected = (self.selected - 1 if dx > 0 else self.selected + 1) % len(self.items)
+            self._start_animation(-1 if dx > 0 else 1)
         elif event.x < self.get_allocated_width() * .30:
-            self.selected = (self.selected - 1) % len(self.items)
+            self._start_animation(-1)
         elif event.x > self.get_allocated_width() * .70:
-            self.selected = (self.selected + 1) % len(self.items)
+            self._start_animation(1)
         else:
             self.items[self.selected][4]()
-        self.queue_draw()
         return True
+
+    def _start_animation(self, direction):
+        if self.animation_direction:
+            return
+        if not self.owner.settings_store.data.get("animations", True):
+            self.selected = (self.selected + direction) % len(self.items)
+            self.queue_draw()
+            return
+        self.animation_direction = direction
+        self.animation_started = time.monotonic()
+        self.animation_progress = 0.0
+        GLib.timeout_add(16, self._animate)
+
+    def _animate(self):
+        elapsed = time.monotonic() - self.animation_started
+        linear = min(1.0, elapsed / 0.30)
+        self.animation_progress = 1.0 - (1.0 - linear) ** 3
+        self.queue_draw()
+        if linear < 1.0:
+            return True
+        self.selected = (self.selected + self.animation_direction) % len(self.items)
+        self.animation_direction = 0
+        self.animation_progress = 0.0
+        self.queue_draw()
+        return False
 
     def _touch(self, _widget, event):
         if event.type == Gdk.EventType.TOUCH_BEGIN:
@@ -1036,29 +1081,46 @@ class CarouselView(Gtk.DrawingArea):
             return self._release(_widget, event)
         return True
 
-    def _card(self, cr, item, x, y, w, h, selected=False):
+    def _card(self, cr, item, x, y, w, h, emphasis=0.0):
         icon, title, subtitle, rgb, _action = item
-        _rounded_rect(cr, x, y, w, h, 28 if selected else 23)
-        _set_rgba(cr, rgb, .93 if selected else .88); cr.fill_preserve()
-        _set_rgba(cr, (0.9, .18, .28) if selected else tuple(min(1, c*1.8) for c in rgb), .95)
+        selected = emphasis > .62
+        _rounded_rect(cr, x, y, w, h, 23 + 5 * emphasis)
+        _set_rgba(cr, rgb, .88 + .05 * emphasis); cr.fill_preserve()
+        normal_border = tuple(min(1, c*1.8) for c in rgb)
+        selected_border = (.9, .18, .28)
+        border = tuple(normal_border[i] * (1-emphasis) + selected_border[i] * emphasis for i in range(3))
+        _set_rgba(cr, border, .95)
         cr.set_line_width(2); cr.stroke()
         _text(cr, title.upper(), x+36, y+48, 16, (.88, .72, .75) if selected else (.72, .72, .76), True)
-        _paint_icon(cr, icon, x+w/2, y+h*.46, 132 if selected else 84)
-        _text(cr, title, x+w/2, y+h-104, 34 if selected else 24, (1,1,1), True, "center")
-        _text(cr, subtitle, x+w/2, y+h-68, 17 if selected else 15, (.82,.75,.77), False, "center")
+        _paint_icon(cr, icon, x+w/2, y+h*.46, 84 + 48 * emphasis)
+        _text(cr, title, x+w/2, y+h-104, 24 + 10 * emphasis, (1,1,1), True, "center")
+        _text(cr, subtitle, x+w/2, y+h-68, 15 + 2 * emphasis, (.82,.75,.77), False, "center")
         if selected:
             _rounded_rect(cr, x+w/2-80, y+h-49, 160, 40, 20)
             _set_rgba(cr, (1,1,1)); cr.fill()
             _text(cr, "ÖFFNEN", x+w/2, y+h-23, 14, (.23,.03,.06), True, "center")
 
+    @staticmethod
+    def _geometry(position):
+        anchors = {
+            -2: (-250, 152, 350, 448),
+            -1: (170, 152, 350, 448),
+             0: (472, 112, 656, 513),
+             1: (1080, 152, 350, 448),
+             2: (1500, 152, 350, 448),
+        }
+        position = max(-2.0, min(2.0, position))
+        low, high = math.floor(position), math.ceil(position)
+        if low == high:
+            return anchors[int(low)]
+        t = position - low
+        return tuple(anchors[low][i] * (1-t) + anchors[high][i] * t for i in range(4))
+
     def _draw(self, _widget, cr):
         w, h = self.get_allocated_width(), self.get_allocated_height()
         sx, sy = w / 1600.0, h / 720.0
         cr.save(); cr.scale(sx, sy)
-        if self.background:
-            cr.set_source_surface(self.background, 0, 0); cr.paint()
-        else:
-            cr.set_source_rgb(.02, .02, .03); cr.paint()
+        _paint_page_background(cr, self.background, self.owner.settings_store.data["background_strength"])
         cr.set_source_rgba(.01, .01, .02, .34); cr.rectangle(0,0,1600,720); cr.fill()
 
         _text(cr, "AUDI MMI", 42, 47, 18, (.91,.91,.93), True)
@@ -1071,12 +1133,16 @@ class CarouselView(Gtk.DrawingArea):
         cr.set_source_rgba(.4,.4,.43,.5); cr.set_line_width(1); cr.move_to(32,72); cr.line_to(1568,72); cr.stroke()
 
         n = len(self.items)
-        previous = self.items[(self.selected-1) % n]
-        current = self.items[self.selected]
-        following = self.items[(self.selected+1) % n]
-        self._card(cr, previous, 170, 152, 350, 448, False)
-        self._card(cr, following, 1080, 152, 350, 448, False)
-        self._card(cr, current, 472, 112, 656, 513, True)
+        shift = self.animation_direction * self.animation_progress
+        cards = []
+        for relative in range(-2, 3):
+            position = relative - shift
+            item = self.items[(self.selected + relative) % n]
+            cards.append((abs(position), position, item))
+        for _distance, position, item in sorted(cards, reverse=True):
+            x, y, card_w, card_h = self._geometry(position)
+            emphasis = max(0.0, 1.0 - abs(position))
+            self._card(cr, item, x, y, card_w, card_h, emphasis)
         _text(cr, f"{self.selected+1} / {n}", 1080, 167, 15, (.86,.56,.60), False, "right")
 
         start = 800 - ((n-1)*17+28)/2
@@ -1090,6 +1156,27 @@ class CarouselView(Gtk.DrawingArea):
         _text(cr, "›", 1557, 692, 36, (.76,.76,.78), False, "right")
         _text(cr, "Wischen oder antippen", 800, 703, 13, (.52,.52,.55), False, "center")
         cr.restore()
+        return False
+
+
+class BrightnessOverlay(Gtk.DrawingArea):
+    """Software dimmer for HDMI panels without a Linux backlight interface."""
+
+    def __init__(self, store):
+        super().__init__()
+        self.store = store
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.connect("draw", self._draw)
+
+    def _draw(self, _widget, cr):
+        data = self.store.data
+        brightness = max(10, min(100, int(data.get("brightness", 100))))
+        mode = data.get("display_mode", "Auto")
+        night = mode == "Nacht" or (mode == "Auto" and (time.localtime().tm_hour >= 20 or time.localtime().tm_hour < 7))
+        alpha = (1.0 - brightness / 100.0) + (0.12 if night else 0.0)
+        cr.set_source_rgba(0, 0, 0, min(.88, alpha))
+        cr.paint()
         return False
 
 
@@ -1115,7 +1202,13 @@ class Launcher(Gtk.Window):
         self.stack.add_named(self.info_view, "info")
         self.stack.add_named(self.vehicle_settings_view, "vehicle")
         self.stack.add_named(self.navigation_view, "navigation")
-        self.add(self.stack)
+        self.root_overlay = Gtk.Overlay()
+        self.root_overlay.add(self.stack)
+        self.brightness_overlay = BrightnessOverlay(self.settings_store)
+        self.root_overlay.add_overlay(self.brightness_overlay)
+        self.root_overlay.set_overlay_pass_through(self.brightness_overlay, True)
+        self.add(self.root_overlay)
+        self.apply_visual_settings()
 
         GLib.timeout_add_seconds(1, self._tick_clock)
         GLib.timeout_add_seconds(4, self._tick_status)
@@ -1274,6 +1367,17 @@ class Launcher(Gtk.Window):
         self.carousel.outside_temp = read_outside_temperature_c()
         self.carousel.queue_draw()
         return True
+
+    def apply_visual_settings(self):
+        animations = bool(self.settings_store.data.get("animations", True))
+        self.stack.set_transition_duration(220 if animations else 0)
+        for view in (
+            self.carousel, self.settings_view, self.wifi_setup_view,
+            self.info_view, self.vehicle_settings_view, self.navigation_view,
+        ):
+            view.queue_draw()
+        if hasattr(self, "brightness_overlay"):
+            self.brightness_overlay.queue_draw()
 
     def on_start_carplay(self, *_args):
         # Signals kiosk-runner.sh to relaunch cage with the CarPlay AppImage
