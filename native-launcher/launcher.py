@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.4"
+APP_VERSION = "2026.09.23.5"
 UPDATE_STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
 INSTALL_UPDATE_MARKER = Path.home() / ".config" / "audi-mmi" / "install-update"
 
