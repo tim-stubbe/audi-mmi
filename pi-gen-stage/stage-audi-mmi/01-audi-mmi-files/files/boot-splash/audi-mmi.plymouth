@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Audi MMI
+Description=Audi MMI boot screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/audi-mmi
+ScriptFile=/usr/share/plymouth/themes/audi-mmi/audi-mmi.script

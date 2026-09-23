@@ -6,6 +6,7 @@ install -d "${ROOTFS_DIR}/opt/audi-mmi/bin"
 install -d "${ROOTFS_DIR}/opt/audi-mmi/carplay"
 install -d "${ROOTFS_DIR}/etc/systemd/system"
 install -d "${ROOTFS_DIR}/etc/udev/rules.d"
+install -d "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi"
 
 install -m 644 files/launcher.py "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/launcher.py"
 install -m 644 files/assets/alps-background.png "${ROOTFS_DIR}/opt/audi-mmi/native-launcher/assets/alps-background.png"
@@ -19,7 +20,16 @@ install -m 644 files/audi-mmi-update.service "${ROOTFS_DIR}/etc/systemd/system/a
 install -m 644 files/audi-mmi-update.timer "${ROOTFS_DIR}/etc/systemd/system/audi-mmi-update.timer"
 
 install -m 644 files/99-carlinkit.rules "${ROOTFS_DIR}/etc/udev/rules.d/99-carlinkit.rules"
+install -m 644 files/boot-splash/audi-mmi.plymouth "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.plymouth"
+install -m 644 files/boot-splash/audi-mmi.script "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/audi-mmi.script"
+install -m 644 files/boot-splash/splash.png "${ROOTFS_DIR}/usr/share/plymouth/themes/audi-mmi/splash.png"
 printf '%s\n' 'os-2026-09-23' > "${ROOTFS_DIR}/opt/audi-mmi/VERSION"
+
+# Keep boot messages away from the visible kiosk VT and show the branded
+# Plymouth screen until the MMI service takes over tty1.
+sed -i 's/console=tty1/console=tty3/' "${ROOTFS_DIR}/boot/firmware/cmdline.txt"
+sed -i '1 s/$/ quiet splash plymouth.ignore-serial-consoles loglevel=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0 logo.nologo/' "${ROOTFS_DIR}/boot/firmware/cmdline.txt"
+grep -qxF 'disable_splash=1' "${ROOTFS_DIR}/boot/firmware/config.txt" || echo 'disable_splash=1' >> "${ROOTFS_DIR}/boot/firmware/config.txt"
 
 # The appliance has a fixed, locked runtime account. It never asks for a
 # username or password on first boot. Only the two commands used by the touch
@@ -32,6 +42,7 @@ ${FIRST_USER_NAME} ALL=(root) NOPASSWD: /usr/bin/nmcli, /usr/bin/systemctl power
 SUDOERS
 chmod 0440 /etc/sudoers.d/010-audi-mmi-ui
 visudo -cf /etc/sudoers.d/010-audi-mmi-ui
+plymouth-set-default-theme -R audi-mmi
 EOF
 
 # react-carplay AppImage is fetched here (on the build machine, which has

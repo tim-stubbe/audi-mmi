@@ -11,3 +11,5 @@ pipewire-pulse
 wireplumber
 network-manager
 can-utils
+plymouth
+plymouth-themes
