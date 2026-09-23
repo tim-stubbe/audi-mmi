@@ -139,7 +139,7 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.6"
+APP_VERSION = "2026.09.23.7"
 UPDATE_STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
 INSTALL_UPDATE_MARKER = Path.home() / ".config" / "audi-mmi" / "install-update"
 
@@ -852,10 +852,11 @@ class InfoView(Gtk.DrawingArea):
             _text(cr,label,x+28,y+38,15,(.68,.69,.73),True)
             _text(cr,value,x+28,y+83,24,(1,1,1),True)
             if label == "Updates" and update.get("available"):
-                _rounded_rect(cr, x+w-222, y+35, 194, 58, 25)
+                button_x = x + 478
+                _rounded_rect(cr, button_x, y+35, 194, 58, 25)
                 _set_rgba(cr, (.86,.08,.15), .98); cr.fill()
-                _text(cr, "INSTALLIEREN", x+w-125, y+72, 14, (1,1,1), True, "center")
-                self.hitboxes.append(("install_update", x+w-222, y+35, 194, 58))
+                _text(cr, "INSTALLIEREN", button_x+97, y+72, 14, (1,1,1), True, "center")
+                self.hitboxes.append(("install_update", button_x, y+35, 194, 58))
         _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
