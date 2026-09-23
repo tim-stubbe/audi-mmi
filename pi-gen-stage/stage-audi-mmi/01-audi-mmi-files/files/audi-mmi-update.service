@@ -5,6 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py
+ExecStart=/usr/bin/python3 /opt/audi-mmi/bin/audi-mmi-updater.py --check
 Nice=10
 IOSchedulingClass=idle

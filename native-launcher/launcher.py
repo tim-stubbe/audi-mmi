@@ -139,7 +139,9 @@ def draw_icon(name, color):
 CARPLAY_APPIMAGE = "/opt/audi-mmi/carplay/react-carplay-4.0.5-arm64.AppImage"
 KIES_DRIVE_EXECUTABLE = "/opt/audi-mmi/kies-drive/kies-drive"
 CARLINKIT_VENDOR_ID = "1314"
-APP_VERSION = "2026.09.23.3"
+APP_VERSION = "2026.09.23.4"
+UPDATE_STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
+INSTALL_UPDATE_MARKER = Path.home() / ".config" / "audi-mmi" / "install-update"
 
 
 def _split_nmcli_terse(line):
@@ -180,6 +182,16 @@ def read_wifi_connection():
     except (OSError, subprocess.SubprocessError):
         pass
     return None
+
+
+def read_update_status():
+    try:
+        data = json.loads(UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return {"available": False, "current": read_mmi_version(), "latest": None}
 
 CSS = b"""
 window { background-color: #070708; }
@@ -477,7 +489,7 @@ class SettingsView(Gtk.DrawingArea):
             ("network", "Verbindungen", read_wifi_connection() or "WLAN einrichten", (.08,.37,.62)),
             ("carplay", "Apple CarPlay", "Dongle- und Audiostatus", (.08,.48,.27)),
             ("vehicle", "Fahrzeug & CAN", "Hardware noch nicht verbunden", (.68,.06,.12)),
-            ("system", "Info", f"Version {read_mmi_version()}", (.28,.30,.34)),
+            ("system", "Info", self._info_value(), (.28,.30,.34)),
         ]
         for i, (ident, label, value, accent) in enumerate(cards):
             col, row = i % 4, i // 4
@@ -485,6 +497,13 @@ class SettingsView(Gtk.DrawingArea):
         _text(cr, "Lautstärke: tippen = +5 %, lange Regelung folgt über die Lenkrad-/CAN-Anbindung.", 44, 683, 14, (.62,.62,.66))
         _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
+
+    @staticmethod
+    def _info_value():
+        update = read_update_status()
+        if update.get("available") and update.get("latest"):
+            return f"Update {update['latest']} verfügbar"
+        return f"Version {read_mmi_version()}"
 
     def _activate(self, ident):
         d = self.store.data
@@ -815,12 +834,15 @@ class InfoView(Gtk.DrawingArea):
         self.hitboxes.append(("back", *_draw_back_button(cr)))
         _text(cr, "Info",232,56,31,(1,1,1),True)
         _text(cr,"Audi MMI · Systeminformationen",232,81,15,(.70,.70,.74))
+        update = read_update_status()
+        update_value = (f"{update.get('latest')} verfügbar"
+                        if update.get("available") else "Keine ausstehende Installation")
         values = [
             ("MMI-Version", read_mmi_version()),
             ("System", "Audi MMI OS · 64 Bit"),
             ("Display", "1600 × 720 · Touch"),
             ("CarPlay", "react-carplay 4.0.5"),
-            ("Updates", "Über iPhone-Hotspot"),
+            ("Updates", update_value),
             ("Fahrzeugzugriff", "CAN noch nicht eingerichtet"),
         ]
         for i,(label,value) in enumerate(values):
@@ -829,6 +851,11 @@ class InfoView(Gtk.DrawingArea):
             _set_rgba(cr,(.31,.32,.36),.92); cr.set_line_width(1.5); cr.stroke()
             _text(cr,label,x+28,y+38,15,(.68,.69,.73),True)
             _text(cr,value,x+28,y+83,24,(1,1,1),True)
+            if label == "Updates" and update.get("available"):
+                _rounded_rect(cr, x+w-222, y+35, 194, 58, 25)
+                _set_rgba(cr, (.86,.08,.15), .98); cr.fill()
+                _text(cr, "INSTALLIEREN", x+w-125, y+72, 14, (1,1,1), True, "center")
+                self.hitboxes.append(("install_update", x+w-222, y+35, 194, 58))
         _paint_display_dimming(cr, self.owner)
         cr.restore(); return False
 
@@ -839,6 +866,7 @@ class InfoView(Gtk.DrawingArea):
         for ident,bx,by,bw,bh in self.hitboxes:
             if bx<=x<=bx+bw and by<=y<=by+bh:
                 if ident=="back": self.owner.on_open_settings()
+                elif ident=="install_update": self.owner.on_install_update()
                 break
         return True
 
@@ -1189,6 +1217,13 @@ class CarouselView(Gtk.DrawingArea):
         _text(cr, "CarPlay" if self.connected else "CarPlay bereit", 1302, 45, 15, (.72,.72,.75), False, "right")
         _set_rgba(cr, (.34,.82,.44) if self.connected else (.42,.42,.45)); cr.arc(1327, 40, 5, 0, math.tau); cr.fill()
         cr.set_source_rgba(.4,.4,.43,.5); cr.set_line_width(1); cr.move_to(32,72); cr.line_to(1568,72); cr.stroke()
+
+        update = read_update_status()
+        if update.get("available") and update.get("latest"):
+            _rounded_rect(cr, 610, 78, 380, 34, 17)
+            _set_rgba(cr, (.48, .045, .08), .96); cr.fill()
+            _text(cr, f"Update {update['latest']} verfügbar", 800, 101, 14,
+                  (1, 1, 1), True, "center")
 
         n = len(self.items)
         shift = self.animation_direction * self.animation_progress
@@ -1541,6 +1576,28 @@ class Launcher(Gtk.Window):
     def on_open_settings(self, *_args):
         self.settings_view.queue_draw()
         self.stack.set_visible_child_name("settings")
+
+    def on_install_update(self, *_args):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Update jetzt installieren?",
+        )
+        dialog.format_secondary_text(
+            "Das MMI startet neu und installiert das Update. Bitte nur im Stand ausführen."
+        )
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        try:
+            INSTALL_UPDATE_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            INSTALL_UPDATE_MARKER.write_text("install\n", encoding="utf-8")
+            subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "reboot"])
+        except OSError as exc:
+            self.show_info("Update", f"Installation konnte nicht vorbereitet werden: {exc}")
 
     def on_shutdown(self, *_args):
         dialog = Gtk.MessageDialog(

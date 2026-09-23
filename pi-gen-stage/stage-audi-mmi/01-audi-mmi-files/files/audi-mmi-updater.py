@@ -2,6 +2,7 @@
 """Pull and install a tested MMI bundle from the latest GitHub release."""
 
 import hashlib
+import argparse
 import json
 import os
 import shutil
@@ -16,6 +17,8 @@ REPOSITORY = "tim-stubbe/audi-mmi"
 ASSET_NAME = "audi-mmi-update.tar.gz"
 API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 VERSION_FILE = Path("/opt/audi-mmi/VERSION")
+STATUS_FILE = Path("/var/lib/audi-mmi/update-status.json")
+INSTALL_MARKER = Path("/home/mmi/.config/audi-mmi/install-update")
 
 FILES = {
     "native-launcher/launcher.py": (Path("/opt/audi-mmi/native-launcher/launcher.py"), 0o644),
@@ -111,17 +114,45 @@ def install(root, version):
             shutil.rmtree(old, ignore_errors=True)
 
 
+def write_status(current, latest, available, error=None):
+    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = STATUS_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps({
+        "current": current,
+        "latest": latest,
+        "available": bool(available),
+        "error": error,
+    }), encoding="utf-8")
+    os.chmod(temporary, 0o644)
+    temporary.replace(STATUS_FILE)
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="Nur nach Updates suchen")
+    parser.add_argument("--install", action="store_true", help="Verfügbares Update installieren")
+    args = parser.parse_args()
+
+    current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else ""
     release = request_json(API_URL)
     version = release["tag_name"]
-    current = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else ""
+    asset = next((item for item in release.get("assets", []) if item.get("name") == ASSET_NAME), None)
+    available = version != current and asset is not None
+    write_status(current, version, available)
+
     if version == current:
+        INSTALL_MARKER.unlink(missing_ok=True)
         print(f"Audi MMI ist aktuell ({version}).")
         return
 
-    asset = next((item for item in release.get("assets", []) if item.get("name") == ASSET_NAME), None)
     if not asset:
         print(f"Release {version} enthält kein freigegebenes MMI-Update.")
+        return
+
+    # Boot checks only fetch release metadata. A download/install happens
+    # exclusively after the driver requested it in the MMI UI.
+    if not args.install and not INSTALL_MARKER.exists():
+        print(f"Audi MMI Update verfügbar: {version}. Installation wartet auf Freigabe.")
         return
 
     with tempfile.TemporaryDirectory(prefix="audi-mmi-update-") as temp:
@@ -138,6 +169,8 @@ def main():
         extract_safely(archive, payload)
         verify_bundle(payload)
         install(payload, version)
+    INSTALL_MARKER.unlink(missing_ok=True)
+    write_status(version, version, False)
     print(f"Audi MMI wurde auf {version} aktualisiert.")
 
 
