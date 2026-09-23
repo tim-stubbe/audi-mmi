@@ -43,6 +43,22 @@ def run(*command, check=True):
     return subprocess.run(command, check=check, text=True, capture_output=True)
 
 
+def install_markers():
+    """Find the approval marker regardless of the image's account name."""
+    markers = {INSTALL_MARKER}
+    markers.update(Path("/home").glob("*/.config/audi-mmi/install-update"))
+    return markers
+
+
+def installation_requested():
+    return any(marker.exists() for marker in install_markers())
+
+
+def clear_install_markers():
+    for marker in install_markers():
+        marker.unlink(missing_ok=True)
+
+
 def request_json(url):
     request = urllib.request.Request(url, headers={"User-Agent": "Audi-MMI-Updater/1"})
     with urllib.request.urlopen(request, timeout=20) as response:
@@ -160,7 +176,7 @@ def main():
                  message=(f"Version {version} ist verfügbar" if available else "System ist aktuell"))
 
     if version == current:
-        INSTALL_MARKER.unlink(missing_ok=True)
+        clear_install_markers()
         print(f"Audi MMI ist aktuell ({version}).")
         return
 
@@ -170,7 +186,7 @@ def main():
 
     # Boot checks only fetch release metadata. A download/install happens
     # exclusively after the driver requested it in the MMI UI.
-    if not args.install and not INSTALL_MARKER.exists():
+    if not args.install and not installation_requested():
         print(f"Audi MMI Update verfügbar: {version}. Installation wartet auf Freigabe.")
         return
 
@@ -204,7 +220,7 @@ def main():
         write_status(current, version, True, state="installing", progress=78,
                      message="Neue Version wird installiert")
         install(payload, version)
-    INSTALL_MARKER.unlink(missing_ok=True)
+    clear_install_markers()
     write_status(version, version, False, state="complete", progress=100,
                  message="Update erfolgreich installiert")
     print(f"Audi MMI wurde auf {version} aktualisiert.")
