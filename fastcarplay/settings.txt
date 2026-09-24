@@ -16,13 +16,15 @@ bluetooth-audio = false
 mic-type = 1
 font-size = 34
 vsync = false
-hw-decode = false
-rendering-buffer = 3
-draw-skip-events = 1
+hw-decode = true
+rendering-buffer = 5
+draw-skip-events = 3
 force-redraw = 0
 aspect-correction = 1
-renderer-driver = opengles2
-alternative-rendering = true
+# Let SDL select the working Wayland renderer. Forcing OpenGL ES produced a
+# black surface on the Pi 5/Waveshare combination, even before a dongle was
+# connected.
+alternative-rendering = false
 fast-render-scale = false
 async-usb-calls = 32
 usb-buffer-size = 2048
