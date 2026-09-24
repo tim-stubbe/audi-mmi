@@ -567,6 +567,7 @@ class WifiSetupView(Gtk.DrawingArea):
         self.status = "Netze werden gesucht …"
         self.selected_ssid = None
         self.password = ""
+        self.show_password = False
         self.uppercase = False
         self.busy = False
         bg_path = Path(__file__).resolve().parent / "assets" / "alps-background.png"
@@ -675,6 +676,7 @@ class WifiSetupView(Gtk.DrawingArea):
             self.status = f"Verbunden mit {ssid}"
             self.selected_ssid = None
             self.password = ""
+            self.show_password = False
         self.queue_draw()
         if not error:
             GLib.timeout_add_seconds(2, self._refresh_after_connect)
@@ -729,16 +731,27 @@ class WifiSetupView(Gtk.DrawingArea):
             _text(cr, self.selected_ssid, 800, 126, 25, (1, 1, 1), True, "center")
             _rounded_rect(cr, 300, 145, 1000, 55, 15); _set_rgba(cr, (.04, .045, .055), .96); cr.fill_preserve()
             _set_rgba(cr, (.48, .49, .54), .9); cr.set_line_width(1.5); cr.stroke()
-            display_password = "•" * len(self.password) if self.password else "WLAN-Passwort"
+            display_password = (self.password if self.show_password else "•" * len(self.password)) if self.password else "WLAN-Passwort"
             _text(cr, display_password, 800, 180, 20,
                   (1, 1, 1) if self.password else (.55, .56, .60), False, "center")
+
+            checkbox_x, checkbox_y = 1020, 204
+            _rounded_rect(cr, checkbox_x, checkbox_y, 32, 32, 7)
+            _set_rgba(cr, (.88, .09, .16) if self.show_password else (.10, .105, .125), .98)
+            cr.fill_preserve()
+            _set_rgba(cr, (.72, .73, .77), .9); cr.set_line_width(1.5); cr.stroke()
+            if self.show_password:
+                _text(cr, "✓", checkbox_x + 16, checkbox_y + 24, 22, (1, 1, 1), True, "center")
+            _text(cr, "Passwort anzeigen", checkbox_x + 46, checkbox_y + 24, 16,
+                  (.90, .90, .93), True)
+            self.hitboxes.append(("toggle_password", 990, 198, 320, 46))
 
             rows = ["1234567890", "QWERTZUIOP", "ASDFGHJKL", "YXCVBNM"]
             for row_index, chars in enumerate(rows):
                 key_w, gap = 92, 10
                 total = len(chars) * key_w + (len(chars) - 1) * gap
                 start_x = 800 - total / 2
-                y = 220 + row_index * 78
+                y = 250 + row_index * 72
                 for col, char in enumerate(chars):
                     shown = char if self.uppercase or row_index == 0 else char.lower()
                     self._key(cr, f"char:{shown}", shown,
@@ -760,6 +773,7 @@ class WifiSetupView(Gtk.DrawingArea):
         if ident == "back":
             if self.selected_ssid is not None:
                 self.selected_ssid, self.password = None, ""
+                self.show_password = False
                 self.queue_draw()
             else:
                 self.owner.on_open_settings()
@@ -776,6 +790,7 @@ class WifiSetupView(Gtk.DrawingArea):
                 self._connect()
             else:
                 self.selected_ssid, self.password = ssid, ""
+                self.show_password = False
                 self.queue_draw()
         elif ident.startswith("char:"):
             if len(self.password) < 63:
@@ -788,8 +803,12 @@ class WifiSetupView(Gtk.DrawingArea):
             self.password = self.password[:-1]; self.queue_draw()
         elif ident == "shift":
             self.uppercase = not self.uppercase; self.queue_draw()
+        elif ident == "toggle_password":
+            self.show_password = not self.show_password; self.queue_draw()
         elif ident == "cancel":
-            self.selected_ssid, self.password = None, ""; self.queue_draw()
+            self.selected_ssid, self.password = None, ""
+            self.show_password = False
+            self.queue_draw()
         elif ident == "connect":
             self._connect()
 
